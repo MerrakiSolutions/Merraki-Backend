@@ -1,0 +1,110 @@
+# Merraki Backend - Makefile
+
+.PHONY: help install dev build test lint migrate-up migrate-down docker-up docker-down clean
+
+# Variables
+APP_NAME=merraki-api
+WORKER_NAME=merraki-worker
+MIGRATE_NAME=merraki-migrate
+DOCKER_COMPOSE=docker-compose
+GO=go
+GOTEST=$(GO) test
+GOVET=$(GO) vet
+GOLINT=golangci-lint
+
+help: ## Display this help message
+	@echo "Merraki Backend - Available Commands:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+install: ## Install dependencies
+	$(GO) mod download
+	$(GO) mod verify
+
+dev: ## Run development server with hot reload
+	air
+
+build: ## Build all binaries
+	@echo "Building API server..."
+	$(GO) build -o bin/$(APP_NAME) cmd/api/main.go
+	@echo "Building worker..."
+	$(GO) build -o bin/$(WORKER_NAME) cmd/worker/main.go
+	@echo "Building migrate tool..."
+	$(GO) build -o bin/$(MIGRATE_NAME) cmd/migrate/main.go
+
+run-api: ## Run API server
+	$(GO) run cmd/api/main.go
+
+run-worker: ## Run background worker
+	$(GO) run cmd/worker/main.go
+
+test: ## Run all tests
+	$(GOTEST) -v -race -coverprofile=coverage.out ./...
+
+test-unit: ## Run unit tests only
+	$(GOTEST) -v -short ./...
+
+test-integration: ## Run integration tests
+	$(GOTEST) -v -run Integration ./tests/integration/...
+
+test-coverage: ## Generate test coverage report
+	$(GOTEST) -coverprofile=coverage.out ./...
+	$(GO) tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
+
+lint: ## Run linter
+	$(GOLINT) run ./...
+
+vet: ## Run go vet
+	$(GOVET) ./...
+
+fmt: ## Format code
+	$(GO) fmt ./...
+
+migrate-create: ## Create new migration (usage: make migrate-create name=create_users)
+	@read -p "Migration name: " name; \
+	migrate create -ext sql -dir migrations -seq $$name
+
+migrate-up: ## Run all up migrations
+	$(GO) run cmd/migrate/main.go up
+
+migrate-down: ## Run all down migrations
+	$(GO) run cmd/migrate/main.go down
+
+migrate-reset: ## Reset database (down then up)
+	$(GO) run cmd/migrate/main.go reset
+
+seed: ## Seed database with test data
+	$(GO) run scripts/seed/main.go
+
+docker-build: ## Build Docker images
+	docker build -t $(APP_NAME):latest -f docker/Dockerfile .
+	docker build -t $(WORKER_NAME):latest -f docker/Dockerfile.worker .
+
+docker-up: ## Start Docker containers
+	$(DOCKER_COMPOSE) -f docker/docker-compose.yml up -d
+
+docker-down: ## Stop Docker containers
+	$(DOCKER_COMPOSE) -f docker/docker-compose.yml down
+
+docker-logs: ## View Docker logs
+	$(DOCKER_COMPOSE) -f docker/docker-compose.yml logs -f
+
+docker-ps: ## List running containers
+	$(DOCKER_COMPOSE) -f docker/docker-compose.yml ps
+
+clean: ## Clean build artifacts
+	rm -rf bin/
+	rm -f coverage.out coverage.html
+	$(GO) clean
+
+deps-update: ## Update dependencies
+	$(GO) get -u ./...
+	$(GO) mod tidy
+
+security-check: ## Run security checks
+	gosec ./...
+
+generate: ## Generate code (mocks, etc.)
+	$(GO) generate ./...
+
+all: clean install lint test build ## Run all checks and build
