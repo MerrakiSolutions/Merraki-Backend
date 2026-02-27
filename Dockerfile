@@ -32,6 +32,7 @@ RUN apk add --no-cache ca-certificates
 COPY --from=builder /app/api .
 COPY --from=builder /app/migrate .
 COPY --from=builder /app/worker .
+COPY --from=builder /app/migrations ./migrations
 
 USER appuser
 
