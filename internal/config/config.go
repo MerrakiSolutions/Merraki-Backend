@@ -30,15 +30,15 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Host            string
-	Port            int
-	User            string
-	Password        string
-	Name            string
-	SSLMode         string
-	MaxConnections  int
-	MaxIdle         int
-	MaxLifetime     time.Duration
+	Host           string
+	Port           int
+	User           string
+	Password       string
+	Name           string
+	SSLMode        string
+	MaxConnections int
+	MaxIdle        int
+	MaxLifetime    time.Duration
 }
 
 type RedisConfig struct {
@@ -51,29 +51,29 @@ type RedisConfig struct {
 }
 
 type AuthConfig struct {
-	PasetoKey             string
-	AccessTokenExpires    time.Duration
-	RefreshTokenExpires   time.Duration
-	CookieSecure          bool
-	CookieSameSite        string
+	PasetoKey           string
+	AccessTokenExpires  time.Duration
+	RefreshTokenExpires time.Duration
+	CookieSecure        bool
+	CookieSameSite      string
 }
 
 type StorageConfig struct {
-	Provider          string // cloudinary or minio
-	CloudinaryName    string
-	CloudinaryKey     string
-	CloudinarySecret  string
-	CloudinaryFolder  string
-	MinioEndpoint     string
-	MinioAccessKey    string
-	MinioSecretKey    string
-	MinioBucket       string
-	MinioUseSSL       bool
+	Provider         string // cloudinary or minio
+	CloudinaryName   string
+	CloudinaryKey    string
+	CloudinarySecret string
+	CloudinaryFolder string
+	MinioEndpoint    string
+	MinioAccessKey   string
+	MinioSecretKey   string
+	MinioBucket      string
+	MinioUseSSL      bool
 }
 
 type PaymentConfig struct {
-	RazorpayKeyID       string
-	RazorpayKeySecret   string
+	RazorpayKeyID         string
+	RazorpayKeySecret     string
 	RazorpayWebhookSecret string
 }
 
@@ -121,6 +121,8 @@ func Load() (*Config, error) {
 	viper.SetConfigFile(".env")
 	viper.AutomaticEnv()
 
+	_ = viper.ReadInConfig()
+
 	if err := viper.ReadInConfig(); err != nil {
 		return nil, fmt.Errorf("failed to read config: %w", err)
 	}
@@ -133,15 +135,15 @@ func Load() (*Config, error) {
 			APIVersion:  viper.GetString("API_VERSION"),
 		},
 		Database: DatabaseConfig{
-			Host:            viper.GetString("DB_HOST"),
-			Port:            viper.GetInt("DB_PORT"),
-			User:            viper.GetString("DB_USER"),
-			Password:        viper.GetString("DB_PASSWORD"),
-			Name:            viper.GetString("DB_NAME"),
-			SSLMode:         viper.GetString("DB_SSL_MODE"),
-			MaxConnections:  viper.GetInt("DB_MAX_CONNECTIONS"),
-			MaxIdle:         viper.GetInt("DB_MAX_IDLE_CONNECTIONS"),
-			MaxLifetime:     viper.GetDuration("DB_MAX_LIFETIME_MINUTES") * time.Minute,
+			Host:           viper.GetString("DB_HOST"),
+			Port:           viper.GetInt("DB_PORT"),
+			User:           viper.GetString("DB_USER"),
+			Password:       viper.GetString("DB_PASSWORD"),
+			Name:           viper.GetString("DB_NAME"),
+			SSLMode:        viper.GetString("DB_SSL_MODE"),
+			MaxConnections: viper.GetInt("DB_MAX_CONNECTIONS"),
+			MaxIdle:        viper.GetInt("DB_MAX_IDLE_CONNECTIONS"),
+			MaxLifetime:    viper.GetDuration("DB_MAX_LIFETIME_MINUTES") * time.Minute,
 		},
 		Redis: RedisConfig{
 			Host:      viper.GetString("REDIS_HOST"),
