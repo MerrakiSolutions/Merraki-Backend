@@ -83,6 +83,7 @@ CREATE INDEX idx_categories_active ON template_categories(is_active, display_ord
 -- ============================================
 -- 4. TEMPLATES
 -- ============================================
+
 CREATE TABLE templates (
     id BIGSERIAL PRIMARY KEY,
     slug VARCHAR(255) UNIQUE NOT NULL,
