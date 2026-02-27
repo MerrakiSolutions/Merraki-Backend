@@ -117,6 +117,7 @@ type LoggingConfig struct {
 	Output string
 }
 
+
 func Load() (*Config, error) {
 	viper.SetConfigFile(".env")
 	viper.AutomaticEnv()
