@@ -34,6 +34,18 @@ services:
       - postgres
     restart: "no"
 
+  seed:
+    image: merrakisolutions/merraki-backend:latest
+    command: ["./scripts/seed"]
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+
   postgres:
     image: postgres:16-alpine
     container_name: postgres
