@@ -13,7 +13,6 @@ import (
 )
 
 func main() {
-	
 	fmt.Println("🌱 Seeding database...")
 
 	// Load configuration
