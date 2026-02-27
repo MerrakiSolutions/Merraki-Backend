@@ -14,6 +14,7 @@ import (
 
 func main() {
 	fmt.Println("🌱 Seeding database...")
+	
 
 	// Load configuration
 	cfg, err := config.Load()
