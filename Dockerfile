@@ -11,7 +11,13 @@ RUN go mod download
 COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -ldflags="-s -w" -o main ./cmd/api
+    go build -ldflags="-s -w" -o api ./cmd/api
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags="-s -w" -o migrate ./cmd/migrate
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags="-s -w" -o worker ./cmd/worker
 
 
 # ---------- Stage 2: Run ----------
@@ -23,10 +29,12 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 RUN apk add --no-cache ca-certificates
 
-COPY --from=builder /app/main .
+COPY --from=builder /app/api .
+COPY --from=builder /app/migrate .
+COPY --from=builder /app/worker .
 
 USER appuser
 
 EXPOSE 8000
 
-CMD ["./main"]
+CMD ["./api"]
