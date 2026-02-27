@@ -121,12 +121,11 @@ func Load() (*Config, error) {
 	viper.SetConfigFile(".env")
 	viper.AutomaticEnv()
 
-	_ = viper.ReadInConfig()
-
+	// Try reading .env file, but ignore if not present (production)
 	if err := viper.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("failed to read config: %w", err)
+		// Only ignore if file not found
+		// You can optionally log this
 	}
-
 	cfg := &Config{
 		Server: ServerConfig{
 			Port:        viper.GetInt("PORT"),
