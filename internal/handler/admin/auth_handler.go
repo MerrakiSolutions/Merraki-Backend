@@ -48,11 +48,11 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	c.Cookie(&fiber.Cookie{
 		Name:     "admin_access_token",
 		Value:    loginResp.AccessToken,
-		HTTPOnly: true,
-		Secure:   false, // true in production (HTTPS)
-		SameSite: "Lax",
+		HTTPOnly: true,     // prevents JS access
+		Secure:   true,     // requires HTTPS
+		SameSite: "Strict", // tighter CSRF protection
 		Path:     "/",
-		MaxAge:   loginResp.ExpiresIn, // 300 seconds
+		MaxAge:   loginResp.ExpiresIn, // e.g., 300 seconds
 	})
 
 	// Refresh token cookie (long-lived)
@@ -60,8 +60,8 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 		Name:     "admin_refresh_token",
 		Value:    loginResp.RefreshToken,
 		HTTPOnly: true,
-		Secure:   false, // true in production
-		SameSite: "Lax",
+		Secure:   true,     // requires HTTPS
+		SameSite: "Strict", // tighter CSRF protection
 		Path:     "/",
 		MaxAge:   7 * 24 * 60 * 60, // 7 days
 	})
