@@ -22,7 +22,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 
 # Build seed binary from its main.go
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -ldflags="-s -w" -o seed ./cmd/seed/main.go
+    go build -ldflags="-s -w" -o seed ./scripts/seed/main.go
 
 # ---------- Stage 2: Run ----------
 FROM alpine:latest
@@ -36,7 +36,8 @@ RUN apk add --no-cache ca-certificates
 COPY --from=builder /app/api .
 COPY --from=builder /app/migrate .
 COPY --from=builder /app/worker .
-COPY --from=builder /app/seed ./scripts/seed   
+COPY --from=builder /app/seed ./scripts/seed
+RUN chmod +x ./scripts/seed   
 
 # Copy migrations folder
 COPY --from=builder /app/migrations ./migrations
