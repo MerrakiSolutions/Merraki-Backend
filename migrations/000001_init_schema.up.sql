@@ -5,6 +5,16 @@
 -- Enable extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+
+-- Auto update updated_at
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 -- ============================================
 -- 1. ADMINS
 -- ============================================
@@ -285,16 +295,16 @@ CREATE TABLE newsletter_campaigns (
     reply_to VARCHAR(255),
     preview_text VARCHAR(255),
     status VARCHAR(50) DEFAULT 'draft',  -- draft, scheduled, sending, sent, failed
-    scheduled_at TIMESTAMP,
-    sent_at TIMESTAMP,
+    scheduled_at TIMESTAMPTZ,
+    sent_at TIMESTAMPTZ,
     total_recipients INTEGER DEFAULT 0,
     total_sent INTEGER DEFAULT 0,
     total_failed INTEGER DEFAULT 0,
     total_opened INTEGER DEFAULT 0,
     total_clicked INTEGER DEFAULT 0,
     created_by BIGINT REFERENCES admins(id),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Newsletter Campaign Recipients (tracking)
@@ -303,11 +313,11 @@ CREATE TABLE newsletter_campaign_recipients (
     campaign_id BIGINT NOT NULL REFERENCES newsletter_campaigns(id) ON DELETE CASCADE,
     subscriber_id BIGINT NOT NULL REFERENCES newsletter_subscribers(id) ON DELETE CASCADE,
     status VARCHAR(50) DEFAULT 'pending',  -- pending, sent, failed, bounced
-    sent_at TIMESTAMP,
-    opened_at TIMESTAMP,
-    clicked_at TIMESTAMP,
+    sent_at TIMESTAMPTZ,
+    opened_at TIMESTAMPTZ,
+    clicked_at TIMESTAMPTZ,
     error_message TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     
     UNIQUE(campaign_id, subscriber_id)
 );
@@ -323,7 +333,7 @@ CREATE INDEX idx_campaign_recipients_status ON newsletter_campaign_recipients(st
 CREATE TRIGGER update_newsletter_campaigns_updated_at
     BEFORE UPDATE ON newsletter_campaigns
     FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
+    EXECUTE FUNCTION update_updated_at();
 
 -- ============================================
 -- 12. CONTACTS
@@ -476,14 +486,7 @@ CREATE INDEX idx_email_logs_status ON email_logs(status, created_at DESC);
 -- TRIGGERS
 -- ============================================
 
--- Auto update updated_at
-CREATE OR REPLACE FUNCTION update_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+
 
 CREATE TRIGGER admins_updated_at BEFORE UPDATE ON admins FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER templates_updated_at BEFORE UPDATE ON templates FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -549,7 +552,7 @@ INSERT INTO admins (email, name, password_hash, role, permissions, is_active)
 VALUES (
     'admin@merraki.com',
     'Super Admin',
-    '$argon2id$v=19$m=65536,t=1,p=4$PLACEHOLDER', -- Replace with actual hash
+    '$argon2id$v=19$m=65536,t=1,p=4$Kwk3HdvsmzX/l4igk3Q66A$MbsYQWnyYBaalXBLsHJF11m1q8QquLBOhIivYbaHKzc', -- Replace with actual hash
     'super_admin',
     '{"all": true}'::jsonb,
     true

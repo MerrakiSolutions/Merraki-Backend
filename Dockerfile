@@ -19,6 +19,9 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -ldflags="-s -w" -o worker ./cmd/worker
 
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -ldflags="-s -w" -o seed ./scripts/seed
+
 
 # ---------- Stage 2: Run ----------
 FROM alpine:latest
@@ -33,6 +36,7 @@ COPY --from=builder /app/api .
 COPY --from=builder /app/migrate .
 COPY --from=builder /app/worker .
 COPY --from=builder /app/migrations ./migrations
+COPY --from=builder /app/scripts/seed ./scripts/seed
 
 USER appuser
 

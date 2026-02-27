@@ -1,3 +1,6 @@
+DROP TRIGGER IF EXISTS update_newsletter_campaigns_updated_at ON newsletter_campaigns;
+DROP TABLE IF EXISTS newsletter_campaign_recipients CASCADE;
+DROP TABLE IF EXISTS newsletter_campaigns CASCADE;
 DROP TABLE IF EXISTS email_logs CASCADE;
 DROP TABLE IF EXISTS admin_login_attempts CASCADE;
 DROP TABLE IF EXISTS exchange_rates CASCADE;
@@ -20,6 +23,3 @@ DROP TABLE IF EXISTS admins CASCADE;
 DROP FUNCTION IF EXISTS update_updated_at CASCADE;
 DROP FUNCTION IF EXISTS log_order_status_change CASCADE;
 DROP FUNCTION IF EXISTS update_category_count CASCADE;
-DROP TRIGGER IF EXISTS update_newsletter_campaigns_updated_at ON newsletter_campaigns;
-DROP TABLE IF EXISTS newsletter_campaign_recipients;
-DROP TABLE IF EXISTS newsletter_campaigns;

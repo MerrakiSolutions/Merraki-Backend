@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   api:
     image: merrakisolutions/merraki-backend:latest
@@ -29,7 +27,7 @@ services:
 
   migrate:
     image: merrakisolutions/merraki-backend:latest
-    command: [./"migrate", "up"]
+    command: ["./migrate", "up"]
     env_file:
       - .env
     depends_on:
