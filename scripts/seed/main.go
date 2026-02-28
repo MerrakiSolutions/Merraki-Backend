@@ -37,6 +37,7 @@ func main() {
 	defer db.Close()
 
 	ctx := context.Background()
+	
 
 	// Seed admin
 	adminRepo := postgres.NewAdminRepository(db)
