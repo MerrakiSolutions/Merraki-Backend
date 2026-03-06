@@ -16,6 +16,7 @@ import (
 	"github.com/merraki/merraki-backend/internal/pkg/logger"
 	"github.com/merraki/merraki-backend/internal/repository/postgres"
 	"github.com/merraki/merraki-backend/internal/repository/redis"
+	"github.com/merraki/merraki-backend/internal/routes"
 	"github.com/merraki/merraki-backend/internal/service"
 	"go.uber.org/zap"
 )
@@ -52,28 +53,36 @@ func main() {
 		logger.Fatal("Failed to connect to Redis", zap.Error(err))
 	}
 
-	// Initialize repositories
+	// ============================================
+	// INITIALIZE REPOSITORIES
+	// ============================================
 	adminRepo := postgres.NewAdminRepository(db)
 	sessionRepo := postgres.NewSessionRepository(db)
 	templateRepo := postgres.NewTemplateRepository(db)
 	categoryRepo := postgres.NewCategoryRepository(db)
 	orderRepo := postgres.NewOrderRepository(db)
-	blogRepo := postgres.NewBlogRepository(db)
+	
+	// Blog repositories
+	blogPostRepo := postgres.NewBlogPostRepository(db)
+	blogAuthorRepo := postgres.NewBlogAuthorRepository(db)
+	blogCategoryRepo := postgres.NewBlogCategoryRepository(db)
+	
 	newsletterRepo := postgres.NewNewsletterRepository(db)
 	contactRepo := postgres.NewContactRepository(db)
 	testRepo := postgres.NewTestRepository(db)
 	calculatorRepo := postgres.NewCalculatorRepository(db)
 	activityLogRepo := postgres.NewActivityLogRepository(db)
 
-	// Initialize services
+	// ============================================
+	// INITIALIZE SERVICES
+	// ============================================
 	storageService, err := service.NewStorageService(cfg)
 	if err != nil {
 		logger.Fatal("Failed to initialize storage service", zap.Error(err))
 	}
 
-	// PDF and Currency services - initialized but used in future features
-	_ = service.NewPDFService(storageService) // Will be used for PDF generation
-	_ = service.NewCurrencyService(cfg)       // Will be used for currency conversion
+	_ = service.NewPDFService(storageService)
+	_ = service.NewCurrencyService(cfg)
 
 	emailService := service.NewEmailService(cfg)
 	paymentService := service.NewPaymentService(cfg)
@@ -87,37 +96,51 @@ func main() {
 	categoryService := service.NewCategoryService(categoryRepo, activityLogRepo)
 	templateService := service.NewTemplateService(templateRepo, categoryRepo, activityLogRepo)
 	orderService := service.NewOrderService(orderRepo, templateRepo, activityLogRepo, paymentService, emailService)
-	blogService := service.NewBlogService(blogRepo, activityLogRepo)
+	
+	// Blog services
+	blogAuthorService := service.NewBlogAuthorService(blogAuthorRepo, activityLogRepo)
+	blogCategoryService := service.NewBlogCategoryService(blogCategoryRepo, activityLogRepo)
+	blogPostService := service.NewBlogPostService(blogPostRepo, blogAuthorRepo, blogCategoryRepo, activityLogRepo)
+	
 	newsletterService := service.NewNewsletterService(newsletterRepo, emailService)
 	contactService := service.NewContactService(contactRepo, activityLogRepo, emailService)
 	testService := service.NewTestService(testRepo, activityLogRepo, emailService)
 	calculatorService := service.NewCalculatorService(calculatorRepo)
 	dashboardService := service.NewDashboardService(db.Pool)
 
-	// Initialize handlers - Admin
-	adminAuthHandler := adminHandlers.NewAuthHandler(authService)
-	adminDashboardHandler := adminHandlers.NewDashboardHandler(dashboardService)
-	adminTemplateHandler := adminHandlers.NewTemplateHandler(templateService)
-	adminCategoryHandler := adminHandlers.NewCategoryHandler(categoryService)
-	adminOrderHandler := adminHandlers.NewOrderHandler(orderService)
-	adminBlogHandler := adminHandlers.NewBlogHandler(blogService)
-	adminNewsletterHandler := adminHandlers.NewNewsletterHandler(newsletterService)
-	adminContactHandler := adminHandlers.NewContactHandler(contactService)
-	adminTestHandler := adminHandlers.NewTestHandler(testService)
-	adminCalculatorHandler := adminHandlers.NewCalculatorHandler(calculatorService)
-	adminUserHandler := adminHandlers.NewAdminUserHandler(adminService)
+	// ============================================
+	// INITIALIZE HANDLERS
+	// ============================================
+	// Admin Handlers
+	adminHandlersStruct := &routes.AdminHandlers{
+		Auth:         adminHandlers.NewAuthHandler(authService),
+		Dashboard:    adminHandlers.NewDashboardHandler(dashboardService),
+		Template:     adminHandlers.NewTemplateHandler(templateService),
+		Order:        adminHandlers.NewOrderHandler(orderService),
+		BlogPost:     adminHandlers.NewBlogPostHandler(blogPostService),
+		BlogAuthor:   adminHandlers.NewBlogAuthorHandler(blogAuthorService),
+		BlogCategory: adminHandlers.NewBlogCategoryHandler(blogCategoryService),
+		Contact:      adminHandlers.NewContactHandler(contactService),
+		Test:         adminHandlers.NewTestHandler(testService),
+		Calculator:   adminHandlers.NewCalculatorHandler(calculatorService),
+		AdminUser:    adminHandlers.NewAdminUserHandler(adminService),
+	}
 
-	// Initialize handlers - Public
-	publicTemplateHandler := publicHandlers.NewTemplateHandler(templateService, categoryService)
-	publicOrderHandler := publicHandlers.NewOrderHandler(orderService)
-	publicCalculatorHandler := publicHandlers.NewCalculatorHandler(calculatorService)
-	publicBlogHandler := publicHandlers.NewBlogHandler(blogService, categoryService)
-	publicNewsletterHandler := publicHandlers.NewNewsletterHandler(newsletterService)
-	publicContactHandler := publicHandlers.NewContactHandler(contactService)
-	publicTestHandler := publicHandlers.NewTestHandler(testService)
-	publicUtilityHandler := publicHandlers.NewUtilityHandler(db, redisClient)
+	// Public Handlers
+	publicHandlersStruct := &routes.PublicHandlers{
+		Template:   publicHandlers.NewTemplateHandler(templateService, categoryService),
+		Order:      publicHandlers.NewOrderHandler(orderService),
+		Calculator: publicHandlers.NewCalculatorHandler(calculatorService),
+		Blog:       publicHandlers.NewBlogHandler(blogPostService, blogAuthorService, blogCategoryService),
+		Newsletter: publicHandlers.NewNewsletterHandler(newsletterService),
+		Contact:    publicHandlers.NewContactHandler(contactService),
+		Test:       publicHandlers.NewTestHandler(testService),
+		Utility:    publicHandlers.NewUtilityHandler(db, redisClient),
+	}
 
-	// Initialize Fiber app
+	// ============================================
+	// INITIALIZE FIBER APP
+	// ============================================
 	app := fiber.New(fiber.Config{
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
 			logger.Error("Fiber error",
@@ -126,11 +149,10 @@ func main() {
 				zap.String("method", c.Method()),
 			)
 
-			// Show detailed error in development
 			if cfg.Server.Environment == "development" {
 				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 					"success": false,
-					"message": err.Error(), // SHOW ACTUAL ERROR
+					"message": err.Error(),
 					"code":    "INTERNAL_ERROR",
 					"path":    c.Path(),
 				})
@@ -142,7 +164,7 @@ func main() {
 				"code":    "INTERNAL_ERROR",
 			})
 		},
-		BodyLimit:             10 * 1024 * 1024, // 10MB
+		BodyLimit:             10 * 1024 * 1024,
 		ReadTimeout:           30 * time.Second,
 		WriteTimeout:          30 * time.Second,
 		IdleTimeout:           120 * time.Second,
@@ -150,7 +172,9 @@ func main() {
 		AppName:               "Merraki API v1.0.0",
 	})
 
-	// Global middleware
+	// ============================================
+	// GLOBAL MIDDLEWARE
+	// ============================================
 	app.Use(middleware.Recovery())
 	app.Use(middleware.RequestID())
 	app.Use(middleware.Logger())
@@ -158,7 +182,9 @@ func main() {
 	app.Use(middleware.CORS(cfg))
 	app.Use(middleware.RateLimit(100, 1*time.Minute))
 
-	// Root endpoint
+	// ============================================
+	// ROOT & HEALTH ENDPOINTS
+	// ============================================
 	app.Get("/", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"success": true,
@@ -168,200 +194,22 @@ func main() {
 		})
 	})
 
-	// Health check
-	app.Get("/health", publicUtilityHandler.Health)
+	app.Get("/health", publicHandlersStruct.Utility.Health)
 
-	// API v1
+	// ============================================
+	// API ROUTES
+	// ============================================
 	api := app.Group("/api/v1")
 
-	// ============================================
-	// PUBLIC ROUTES
-	// ============================================
-	public := api.Group("/public")
-	{
-		// Templates
-		templates := public.Group("/templates")
-		templates.Get("/", publicTemplateHandler.GetAll)
-		templates.Get("/featured", publicTemplateHandler.GetFeatured)
-		templates.Get("/popular", publicTemplateHandler.GetPopular)
-		templates.Get("/search", publicTemplateHandler.Search)
-		templates.Get("/:slug", publicTemplateHandler.GetBySlug)
+	// Setup Public Routes
+	routes.SetupPublicRoutes(api, publicHandlersStruct)
 
-		// Categories
-		public.Get("/categories", publicTemplateHandler.GetCategories)
-
-		// Orders
-		orders := public.Group("/orders")
-		orders.Post("/", publicOrderHandler.Create)
-		orders.Post("/verify", publicOrderHandler.VerifyPayment)
-		orders.Get("/lookup", publicOrderHandler.Lookup)
-		orders.Get("/download/:orderNumber", publicOrderHandler.Download)
-		orders.Post("/webhook", publicOrderHandler.Webhook) // Razorpay webhook
-
-		// Calculators
-		calculators := public.Group("/calculators")
-		calculators.Post("/valuation", publicCalculatorHandler.CalculateValuation)
-		calculators.Post("/breakeven", publicCalculatorHandler.CalculateBreakeven)
-		calculators.Post("/save", publicCalculatorHandler.SaveResult)
-		calculators.Get("/results", publicCalculatorHandler.GetResults)
-		calculators.Post("/export-pdf", publicCalculatorHandler.ExportPDF)
-
-		// Blog
-		blog := public.Group("/blog")
-		blog.Get("/posts", publicBlogHandler.GetAll)
-		blog.Get("/posts/featured", publicBlogHandler.GetFeatured)
-		blog.Get("/posts/popular", publicBlogHandler.GetPopular)
-		blog.Get("/posts/search", publicBlogHandler.Search)
-		blog.Get("/posts/:slug", publicBlogHandler.GetBySlug)
-		blog.Get("/categories", publicBlogHandler.GetCategories)
-
-		// Newsletter
-		newsletter := public.Group("/newsletter")
-		newsletter.Post("/subscribe", publicNewsletterHandler.Subscribe)
-		newsletter.Post("/unsubscribe", publicNewsletterHandler.Unsubscribe)
-		newsletter.Get("/unsubscribe", publicNewsletterHandler.UnsubscribeGET)
-
-		// Contact
-		public.Post("/contact", publicContactHandler.Create)
-
-		// Test
-		test := public.Group("/test")
-		test.Get("/questions", publicTestHandler.GetQuestions)
-		test.Post("/submit", publicTestHandler.Submit)
-		test.Get("/results/:testNumber", publicTestHandler.GetResults)
-
-		// Utility
-		public.Get("/currency/convert", publicUtilityHandler.CurrencyConvert)
-	}
+	// Setup Admin Routes
+	routes.SetupAdminRoutes(api, adminHandlersStruct, cfg)
 
 	// ============================================
-	// ADMIN ROUTES
+	// 404 HANDLER
 	// ============================================
-	admin := api.Group("/admin")
-	{
-		// Auth routes (no authentication required)
-		auth := admin.Group("/auth")
-		auth.Post("/login", adminAuthHandler.Login)
-		auth.Post("/refresh", adminAuthHandler.RefreshToken)
-
-		// Protected admin routes
-		protected := admin.Use(middleware.AdminAuth(cfg))
-
-		// ========== Auth Management ==========
-		authRoutes := protected.Group("/auth")
-		authRoutes.Post("/logout", adminAuthHandler.Logout)
-		authRoutes.Post("/logout-all", adminAuthHandler.LogoutAll)
-		authRoutes.Get("/me", adminAuthHandler.GetMe)
-		authRoutes.Get("/sessions", adminAuthHandler.GetSessions)
-		authRoutes.Delete("/sessions/:sessionId", adminAuthHandler.RevokeSession)
-		authRoutes.Post("/change-password", adminAuthHandler.ChangePassword)
-		authRoutes.Get("/login-history", adminAuthHandler.GetLoginHistory)
-
-		// ========== Dashboard ==========
-		dashboard := protected.Group("/dashboard")
-		dashboard.Get("/summary", adminDashboardHandler.GetSummary)
-		dashboard.Get("/activity", adminDashboardHandler.GetActivity)
-		dashboard.Get("/charts", adminDashboardHandler.GetCharts)
-		dashboard.Get("/stats", adminDashboardHandler.GetStats)
-		dashboard.Get("/notifications", adminDashboardHandler.GetNotifications)
-		dashboard.Put("/notifications/:id/read", adminDashboardHandler.MarkNotificationRead)
-
-		// ========== Templates ==========
-		templates := protected.Group("/templates")
-		templates.Get("/", adminTemplateHandler.GetAll)
-		templates.Get("/:id", adminTemplateHandler.GetByID)
-		templates.Post("/", adminTemplateHandler.Create)
-		templates.Put("/:id", adminTemplateHandler.Update)
-		templates.Delete("/:id", adminTemplateHandler.Delete)
-		templates.Get("/analytics", func(c *fiber.Ctx) error {
-			logger.Info("Analytics route hit!")
-			return adminTemplateHandler.GetAnalytics(c)
-		})
-
-		// ========== Categories ==========
-		categories := protected.Group("/categories")
-		// Template categories
-		categories.Get("/templates", adminCategoryHandler.GetTemplateCategories)
-		categories.Post("/templates", adminCategoryHandler.CreateTemplateCategory)
-		categories.Put("/templates/:id", adminCategoryHandler.UpdateTemplateCategory)
-		categories.Delete("/templates/:id", adminCategoryHandler.DeleteTemplateCategory)
-		// Blog categories
-		categories.Get("/blog", adminCategoryHandler.GetBlogCategories)
-		categories.Post("/blog", adminCategoryHandler.CreateBlogCategory)
-		categories.Put("/blog/:id", adminCategoryHandler.UpdateBlogCategory)
-		categories.Delete("/blog/:id", adminCategoryHandler.DeleteBlogCategory)
-
-		// ========== Orders ==========
-		orders := protected.Group("/orders")
-		orders.Get("/", adminOrderHandler.GetAll)
-		orders.Get("/pending", adminOrderHandler.GetPending)
-		orders.Get("/:id", adminOrderHandler.GetByID)
-		orders.Post("/:id/approve", adminOrderHandler.Approve)
-		orders.Post("/:id/reject", adminOrderHandler.Reject)
-		orders.Get("/analytics/revenue", adminOrderHandler.GetRevenueAnalytics)
-
-		// ========== Blog ==========
-		blog := protected.Group("/blog")
-		blog.Get("/posts", adminBlogHandler.GetAll)
-		blog.Get("/posts/:id", adminBlogHandler.GetByID)
-		blog.Post("/posts", adminBlogHandler.Create)
-		blog.Put("/posts/:id", adminBlogHandler.Update)
-		blog.Delete("/posts/:id", adminBlogHandler.Delete)
-		blog.Get("/analytics", adminBlogHandler.GetAnalytics)
-
-		// ========== Newsletter ==========
-		newsletter := protected.Group("/newsletter")
-		newsletter.Get("/subscribers", adminNewsletterHandler.GetAll)
-		newsletter.Post("/subscribers", adminNewsletterHandler.Add)
-		newsletter.Delete("/subscribers/:id", adminNewsletterHandler.Delete)
-		newsletter.Get("/analytics", adminNewsletterHandler.GetAnalytics)
-		newsletter.Post("/export", adminNewsletterHandler.Export)
-
-		// ========== Contacts ==========
-		contacts := protected.Group("/contacts")
-		contacts.Get("/", adminContactHandler.GetAll)
-		contacts.Get("/:id", adminContactHandler.GetByID)
-		contacts.Put("/:id", adminContactHandler.Update)
-		contacts.Post("/:id/reply", adminContactHandler.Reply)
-		contacts.Delete("/:id", adminContactHandler.Delete)
-		contacts.Get("/analytics", adminContactHandler.GetAnalytics)
-
-		// ========== Tests ==========
-		tests := protected.Group("/tests")
-		// Questions
-		tests.Get("/questions", adminTestHandler.GetAllQuestions)
-		tests.Get("/questions/:id", adminTestHandler.GetQuestionByID)
-		tests.Post("/questions", adminTestHandler.CreateQuestion)
-		tests.Put("/questions/:id", adminTestHandler.UpdateQuestion)
-		tests.Delete("/questions/:id", adminTestHandler.DeleteQuestion)
-		// Submissions
-		tests.Get("/submissions", adminTestHandler.GetAllSubmissions)
-		tests.Get("/analytics", adminTestHandler.GetAnalytics)
-		tests.Post("/export", adminTestHandler.Export)
-
-		// ========== Calculators ==========
-		calculators := protected.Group("/calculators")
-		calculators.Get("/results", adminCalculatorHandler.GetAll)
-		calculators.Get("/analytics", adminCalculatorHandler.GetAnalytics)
-
-		// ========== Admin Users ==========
-		admins := protected.Group("/users")
-		admins.Get("/", adminUserHandler.GetAll)
-		admins.Get("/:id", adminUserHandler.GetByID)
-		admins.Post("/create", adminUserHandler.Create)
-		admins.Put("/:id", adminUserHandler.Update)
-		admins.Delete("/:id", adminUserHandler.Delete)
-
-		// ========== Search (Global Admin Search) ==========
-		protected.Get("/search", adminDashboardHandler.GlobalSearch)
-
-		// ========== Settings ==========
-		settings := protected.Group("/settings")
-		settings.Get("/", adminDashboardHandler.GetSettings)
-		settings.Put("/", adminDashboardHandler.UpdateSettings)
-	}
-
-	// 404 handler
 	app.Use(func(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"success": false,
@@ -371,22 +219,26 @@ func main() {
 		})
 	})
 
-	// Start server
+	// ============================================
+	// START SERVER
+	// ============================================
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.Server.Port)
 		logger.Info("🚀 Server starting",
 			zap.String("address", addr),
 			zap.String("env", cfg.Server.Environment),
 		)
-		logger.Info("📚 API Documentation: http://localhost:8000/api/v1/docs")
-		logger.Info("❤️  Health Check: http://localhost:8000/health")
+		logger.Info("📚 API Documentation: http://localhost:"+fmt.Sprint(cfg.Server.Port)+"/api/v1/docs")
+		logger.Info("❤️  Health Check: http://localhost:"+fmt.Sprint(cfg.Server.Port)+"/health")
 
 		if err := app.Listen(addr); err != nil {
 			logger.Fatal("Failed to start server", zap.Error(err))
 		}
 	}()
 
-	// Graceful shutdown
+	// ============================================
+	// GRACEFUL SHUTDOWN
+	// ============================================
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
