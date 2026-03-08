@@ -15,6 +15,7 @@ type AdminUserHandler struct {
 	adminService *service.AdminService
 }
 
+
 func NewAdminUserHandler(adminService *service.AdminService) *AdminUserHandler {
 	return &AdminUserHandler{adminService: adminService}
 }
