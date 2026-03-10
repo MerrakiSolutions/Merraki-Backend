@@ -42,7 +42,7 @@ func (s *BlogPostService) CreatePost(ctx context.Context, post *domain.BlogPost,
 
 	// Check if slug exists
 	existing, err := s.postRepo.FindBySlug(ctx, post.Slug)
-	if err != nil {
+	if err != nil && err != sql.ErrNoRows {
 		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to check slug", 500)
 	}
 
@@ -53,7 +53,7 @@ func (s *BlogPostService) CreatePost(ctx context.Context, post *domain.BlogPost,
 	// Verify author exists
 	if post.AuthorID != nil {
 		author, err := s.authorRepo.FindByID(ctx, *post.AuthorID)
-		if err != nil {
+		if err != nil && err != sql.ErrNoRows {
 			return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to verify author", 500)
 		}
 		if author == nil {
@@ -64,7 +64,7 @@ func (s *BlogPostService) CreatePost(ctx context.Context, post *domain.BlogPost,
 	// Verify category exists
 	if post.CategoryID != nil {
 		category, err := s.categoryRepo.FindByID(ctx, *post.CategoryID)
-		if err != nil {
+		if err != nil && err != sql.ErrNoRows {
 			return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to verify category", 500)
 		}
 		if category == nil {
@@ -111,6 +111,9 @@ func (s *BlogPostService) CreatePost(ctx context.Context, post *domain.BlogPost,
 func (s *BlogPostService) GetPostByID(ctx context.Context, id int64, incrementViews bool) (*domain.BlogPost, error) {
 	post, err := s.postRepo.FindByID(ctx, id)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, apperrors.ErrNotFound
+		}
 		return nil, apperrors.Wrap(err, "DATABASE_ERROR", "Failed to find post", 500)
 	}
 
@@ -128,6 +131,9 @@ func (s *BlogPostService) GetPostByID(ctx context.Context, id int64, incrementVi
 func (s *BlogPostService) GetPostBySlug(ctx context.Context, slug string, incrementViews bool) (*domain.BlogPost, error) {
 	post, err := s.postRepo.FindBySlug(ctx, slug)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, apperrors.ErrNotFound
+		}
 		return nil, apperrors.Wrap(err, "DATABASE_ERROR", "Failed to find post", 500)
 	}
 
@@ -150,9 +156,13 @@ func (s *BlogPostService) GetAllPostsWithRelations(ctx context.Context, filters 
 	return s.postRepo.GetAllWithRelations(ctx, filters, limit, offset)
 }
 
+// ✅ FIX: Complete UpdatePost method
 func (s *BlogPostService) UpdatePost(ctx context.Context, post *domain.BlogPost, updatedBy int64) error {
 	existing, err := s.postRepo.FindByID(ctx, post.ID)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return apperrors.ErrNotFound
+		}
 		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to find post", 500)
 	}
 
@@ -175,7 +185,7 @@ func (s *BlogPostService) UpdatePost(ctx context.Context, post *domain.BlogPost,
 	// Verify author if provided
 	if post.AuthorID != nil {
 		author, err := s.authorRepo.FindByID(ctx, *post.AuthorID)
-		if err != nil {
+		if err != nil && err != sql.ErrNoRows {
 			return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to verify author", 500)
 		}
 		if author == nil {
@@ -186,12 +196,20 @@ func (s *BlogPostService) UpdatePost(ctx context.Context, post *domain.BlogPost,
 	// Verify category if provided
 	if post.CategoryID != nil {
 		category, err := s.categoryRepo.FindByID(ctx, *post.CategoryID)
-		if err != nil {
+		if err != nil && err != sql.ErrNoRows {
 			return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to verify category", 500)
 		}
 		if category == nil {
 			return apperrors.New("CATEGORY_NOT_FOUND", "Category not found", 404)
 		}
+	}
+
+	// ✅ Ensure arrays are initialized
+	if post.Tags == nil {
+		post.Tags = pq.StringArray{}
+	}
+	if post.MetaKeywords == nil {
+		post.MetaKeywords = pq.StringArray{}
 	}
 
 	// Set published_at if status changed to published
@@ -219,6 +237,9 @@ func (s *BlogPostService) UpdatePost(ctx context.Context, post *domain.BlogPost,
 func (s *BlogPostService) PatchPost(ctx context.Context, id int64, updates map[string]interface{}, updatedBy int64) error {
 	existing, err := s.postRepo.FindByID(ctx, id)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return apperrors.ErrNotFound
+		}
 		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to find post", 500)
 	}
 
@@ -251,6 +272,9 @@ func (s *BlogPostService) PatchPost(ctx context.Context, id int64, updates map[s
 func (s *BlogPostService) DeletePost(ctx context.Context, id, deletedBy int64) error {
 	post, err := s.postRepo.FindByID(ctx, id)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return apperrors.ErrNotFound
+		}
 		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to find post", 500)
 	}
 
@@ -277,12 +301,30 @@ func (s *BlogPostService) SearchPosts(ctx context.Context, query string, limit i
 	return s.postRepo.Search(ctx, query, limit)
 }
 
-func (s *BlogPostService) GetPostsByAuthor(ctx context.Context, authorID int64, limit, offset int) ([]*domain.BlogPost, int, error) {
-	return s.postRepo.GetByAuthor(ctx, authorID, limit, offset)
+func (s *BlogPostService) GetPostsByAuthor(ctx context.Context, authorSlug string, limit, offset int) ([]*domain.BlogPost, int, error) {
+	// Get author by slug first
+	author, err := s.authorRepo.FindBySlug(ctx, authorSlug)
+	if err != nil {
+		return nil, 0, apperrors.Wrap(err, "DATABASE_ERROR", "Failed to find author", 500)
+	}
+	if author == nil {
+		return nil, 0, apperrors.ErrNotFound
+	}
+
+	return s.postRepo.GetByAuthor(ctx, author.ID, limit, offset)
 }
 
-func (s *BlogPostService) GetPostsByCategory(ctx context.Context, categoryID int64, limit, offset int) ([]*domain.BlogPost, int, error) {
-	return s.postRepo.GetByCategory(ctx, categoryID, limit, offset)
+func (s *BlogPostService) GetPostsByCategory(ctx context.Context, categorySlug string, limit, offset int) ([]*domain.BlogPost, int, error) {
+	// Get category by slug first
+	category, err := s.categoryRepo.FindBySlug(ctx, categorySlug)
+	if err != nil {
+		return nil, 0, apperrors.Wrap(err, "DATABASE_ERROR", "Failed to find category", 500)
+	}
+	if category == nil {
+		return nil, 0, apperrors.ErrNotFound
+	}
+
+	return s.postRepo.GetByCategory(ctx, category.ID, limit, offset)
 }
 
 func (s *BlogPostService) GetPostsByTag(ctx context.Context, tag string, limit, offset int) ([]*domain.BlogPost, int, error) {

@@ -27,12 +27,15 @@ func NewBlogHandler(
 	}
 }
 
-// ========== POSTS ==========
+// ── Posts ─────────────────────────────────────────────────────────────────────
 
 func (h *BlogHandler) GetAllPosts(c *fiber.Ctx) error {
 	page, _ := strconv.Atoi(c.Query("page", "1"))
 	limit, _ := strconv.Atoi(c.Query("limit", "12"))
-	withRelations := c.Query("with_relations") == "true"
+	category := c.Query("category")
+	tag := c.Query("tag")
+	search := c.Query("search")
+	featured := c.Query("featured") == "true"
 
 	params := &domain.PaginationParams{
 		Page:  page,
@@ -40,49 +43,29 @@ func (h *BlogHandler) GetAllPosts(c *fiber.Ctx) error {
 	}
 	params.Validate()
 
+	// Build filters
 	filters := map[string]interface{}{
 		"status": "published", // Only published posts for public
 	}
-
-	// Category filter
-	if categorySlug := c.Query("category"); categorySlug != "" {
-		category, err := h.categoryService.GetCategoryBySlug(c.Context(), categorySlug)
-		if err == nil && category != nil {
-			filters["category_id"] = category.ID
-		}
+	if category != "" {
+		filters["category"] = category
 	}
-
-	// Author filter
-	if authorSlug := c.Query("author"); authorSlug != "" {
-		author, err := h.authorService.GetAuthorBySlug(c.Context(), authorSlug)
-		if err == nil && author != nil {
-			filters["author_id"] = author.ID
-		}
-	}
-
-	// Tag filter
-	if tag := c.Query("tag"); tag != "" {
+	if tag != "" {
 		filters["tag"] = tag
 	}
-
-	// Search filter
-	if search := c.Query("search"); search != "" {
+	if search != "" {
 		filters["search"] = search
 	}
-
-	// Sort
-	sort := c.Query("sort", "newest")
-	filters["sort"] = sort
-
-	if withRelations {
-		posts, total, err := h.postService.GetAllPostsWithRelations(c.Context(), filters, params.Limit, params.GetOffset())
-		if err != nil {
-			return response.Error(c, err)
-		}
-		return response.Paginated(c, posts, total, params.Page, params.Limit)
+	if featured {
+		filters["featured"] = true
 	}
 
-	posts, total, err := h.postService.GetAllPosts(c.Context(), filters, params.Limit, params.GetOffset())
+	posts, total, err := h.postService.GetAllPostsWithRelations(
+		c.Context(),
+		filters,
+		params.Limit,
+		params.GetOffset(),
+	)
 	if err != nil {
 		return response.Error(c, err)
 	}
@@ -92,16 +75,15 @@ func (h *BlogHandler) GetAllPosts(c *fiber.Ctx) error {
 
 func (h *BlogHandler) GetPostBySlug(c *fiber.Ctx) error {
 	slug := c.Params("slug")
-	incrementViews := c.Query("increment_views", "true") == "true"
 
-	post, err := h.postService.GetPostBySlug(c.Context(), slug, incrementViews)
+	post, err := h.postService.GetPostBySlug(c.Context(), slug, true) // true = increment views
 	if err != nil {
 		return response.Error(c, err)
 	}
 
-	// Only show published posts to public
+	// Only return published posts to public
 	if post.Status != "published" {
-		return response.Error(c, fiber.NewError(404, "Post not found"))
+		return response.Error(c, fiber.NewError(fiber.StatusNotFound, "Post not found"))
 	}
 
 	return response.SuccessData(c, post)
@@ -109,101 +91,49 @@ func (h *BlogHandler) GetPostBySlug(c *fiber.Ctx) error {
 
 func (h *BlogHandler) SearchPosts(c *fiber.Ctx) error {
 	query := c.Query("q")
-	limit, _ := strconv.Atoi(c.Query("limit", "10"))
-
 	if query == "" {
-		return response.Error(c, fiber.NewError(400, "Search query required"))
+		return response.Error(c, fiber.NewError(fiber.StatusBadRequest, "Search query required"))
 	}
+
+	limit, _ := strconv.Atoi(c.Query("limit", "10"))
 
 	posts, err := h.postService.SearchPosts(c.Context(), query, limit)
 	if err != nil {
 		return response.Error(c, err)
 	}
 
+	// Filter only published
+	published := make([]*domain.BlogPost, 0)
+	for _, post := range posts {
+		if post.Status == "published" {
+			published = append(published, post)
+			if len(published) >= limit {
+				break
+			}
+		}
+	}
+
 	return response.SuccessData(c, fiber.Map{
-		"results": posts,
+		"results": published,
 		"query":   query,
-		"total":   len(posts),
+		"total":   len(published),
 	})
 }
 
-// ========== AUTHORS ==========
-
-func (h *BlogHandler) GetAllAuthors(c *fiber.Ctx) error {
-	page, _ := strconv.Atoi(c.Query("page", "1"))
-	limit, _ := strconv.Atoi(c.Query("limit", "20"))
-
-	params := &domain.PaginationParams{
-		Page:  page,
-		Limit: limit,
-	}
-	params.Validate()
-
-	authors, total, err := h.authorService.GetAllAuthors(c.Context(), true, params.Limit, params.GetOffset())
-	if err != nil {
-		return response.Error(c, err)
-	}
-
-	return response.Paginated(c, authors, total, params.Page, params.Limit)
-}
-
-func (h *BlogHandler) GetAuthorBySlug(c *fiber.Ctx) error {
-	slug := c.Params("slug")
-
-	author, err := h.authorService.GetAuthorBySlug(c.Context(), slug)
-	if err != nil {
-		return response.Error(c, err)
-	}
-
-	if !author.IsActive {
-		return response.Error(c, fiber.NewError(404, "Author not found"))
-	}
-
-	return response.SuccessData(c, author)
-}
-
-func (h *BlogHandler) GetPostsByAuthor(c *fiber.Ctx) error {
-	slug := c.Params("slug")
-	page, _ := strconv.Atoi(c.Query("page", "1"))
-	limit, _ := strconv.Atoi(c.Query("limit", "12"))
-
-	params := &domain.PaginationParams{
-		Page:  page,
-		Limit: limit,
-	}
-	params.Validate()
-
-	author, err := h.authorService.GetAuthorBySlug(c.Context(), slug)
-	if err != nil {
-		return response.Error(c, err)
-	}
-
-	posts, total, err := h.postService.GetPostsByAuthor(c.Context(), author.ID, params.Limit, params.GetOffset())
-	if err != nil {
-		return response.Error(c, err)
-	}
-
-	return response.Paginated(c, posts, total, params.Page, params.Limit)
-}
-
-// ========== CATEGORIES ==========
+// ── Categories ────────────────────────────────────────────────────────────────
 
 func (h *BlogHandler) GetAllCategories(c *fiber.Ctx) error {
-	page, _ := strconv.Atoi(c.Query("page", "1"))
-	limit, _ := strconv.Atoi(c.Query("limit", "50"))
-
-	params := &domain.PaginationParams{
-		Page:  page,
-		Limit: limit,
-	}
-	params.Validate()
-
-	categories, total, err := h.categoryService.GetAllCategories(c.Context(), true, params.Limit, params.GetOffset())
+	categories, _, err := h.categoryService.GetAllCategories(
+		c.Context(),
+		true, // activeOnly = true for public
+		1000,
+		0,
+	)
 	if err != nil {
 		return response.Error(c, err)
 	}
 
-	return response.Paginated(c, categories, total, params.Page, params.Limit)
+	return response.SuccessData(c, categories)
 }
 
 func (h *BlogHandler) GetCategoryBySlug(c *fiber.Ctx) error {
@@ -215,7 +145,7 @@ func (h *BlogHandler) GetCategoryBySlug(c *fiber.Ctx) error {
 	}
 
 	if !category.IsActive {
-		return response.Error(c, fiber.NewError(404, "Category not found"))
+		return response.Error(c, fiber.NewError(fiber.StatusNotFound, "Category not found"))
 	}
 
 	return response.SuccessData(c, category)
@@ -232,20 +162,93 @@ func (h *BlogHandler) GetPostsByCategory(c *fiber.Ctx) error {
 	}
 	params.Validate()
 
-	category, err := h.categoryService.GetCategoryBySlug(c.Context(), slug)
+	posts, _, err := h.postService.GetPostsByCategory( // ✅ Use _ to ignore total
+		c.Context(),
+		slug,
+		params.Limit,
+		params.GetOffset(),
+	)
 	if err != nil {
 		return response.Error(c, err)
 	}
 
-	posts, total, err := h.postService.GetPostsByCategory(c.Context(), category.ID, params.Limit, params.GetOffset())
-	if err != nil {
-		return response.Error(c, err)
+	// Filter only published posts
+	published := make([]*domain.BlogPost, 0)
+	for _, post := range posts {
+		if post.Status == "published" {
+			published = append(published, post)
+		}
 	}
 
-	return response.Paginated(c, posts, total, params.Page, params.Limit)
+	// ✅ Use len(published) as the new total
+	return response.Paginated(c, published, len(published), params.Page, params.Limit)
 }
 
-// ========== TAGS ==========
+// ── Authors ───────────────────────────────────────────────────────────────────
+
+func (h *BlogHandler) GetAllAuthors(c *fiber.Ctx) error {
+	authors, _, err := h.authorService.GetAllAuthors(
+		c.Context(),
+		true, // activeOnly = true for public
+		1000,
+		0,
+	)
+	if err != nil {
+		return response.Error(c, err)
+	}
+
+	return response.SuccessData(c, authors)
+}
+
+func (h *BlogHandler) GetAuthorBySlug(c *fiber.Ctx) error {
+	slug := c.Params("slug")
+
+	author, err := h.authorService.GetAuthorBySlug(c.Context(), slug)
+	if err != nil {
+		return response.Error(c, err)
+	}
+
+	if !author.IsActive {
+		return response.Error(c, fiber.NewError(fiber.StatusNotFound, "Author not found"))
+	}
+
+	return response.SuccessData(c, author)
+}
+
+func (h *BlogHandler) GetPostsByAuthor(c *fiber.Ctx) error {
+	slug := c.Params("slug")
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	limit, _ := strconv.Atoi(c.Query("limit", "12"))
+
+	params := &domain.PaginationParams{
+		Page:  page,
+		Limit: limit,
+	}
+	params.Validate()
+
+	posts, _, err := h.postService.GetPostsByAuthor( // ✅ Use _ to ignore total
+		c.Context(),
+		slug,
+		params.Limit,
+		params.GetOffset(),
+	)
+	if err != nil {
+		return response.Error(c, err)
+	}
+
+	// Filter only published posts
+	published := make([]*domain.BlogPost, 0)
+	for _, post := range posts {
+		if post.Status == "published" {
+			published = append(published, post)
+		}
+	}
+
+	// ✅ Use len(published) as the new total
+	return response.Paginated(c, published, len(published), params.Page, params.Limit)
+}
+
+// ── Tags ──────────────────────────────────────────────────────────────────────
 
 func (h *BlogHandler) GetPostsByTag(c *fiber.Ctx) error {
 	tag := c.Params("tag")
@@ -258,10 +261,24 @@ func (h *BlogHandler) GetPostsByTag(c *fiber.Ctx) error {
 	}
 	params.Validate()
 
-	posts, total, err := h.postService.GetPostsByTag(c.Context(), tag, params.Limit, params.GetOffset())
+	posts, _, err := h.postService.GetPostsByTag( // ✅ Use _ to ignore total
+		c.Context(),
+		tag,
+		params.Limit,
+		params.GetOffset(),
+	)
 	if err != nil {
 		return response.Error(c, err)
 	}
 
-	return response.Paginated(c, posts, total, params.Page, params.Limit)
+	// Filter only published posts
+	published := make([]*domain.BlogPost, 0)
+	for _, post := range posts {
+		if post.Status == "published" {
+			published = append(published, post)
+		}
+	}
+
+	// ✅ Use len(published) as the new total
+	return response.Paginated(c, published, len(published), params.Page, params.Limit)
 }

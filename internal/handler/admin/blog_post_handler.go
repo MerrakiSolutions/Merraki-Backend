@@ -40,6 +40,24 @@ type CreateBlogPostRequest struct {
 	ReadingTimeMinutes int      `json:"reading_time_minutes"`
 }
 
+// ✅ FIX: Add UpdateBlogPostRequest struct
+type UpdateBlogPostRequest struct {
+	Title              string   `json:"title" validate:"required"`
+	Slug               string   `json:"slug"`
+	Excerpt            string   `json:"excerpt"`
+	Content            string   `json:"content" validate:"required"`
+	FeaturedImageURL   string   `json:"featured_image_url"`
+	AuthorID           *int64   `json:"author_id"`
+	CategoryID         *int64   `json:"category_id"`
+	Tags               []string `json:"tags"`
+	MetaTitle          string   `json:"meta_title"`
+	MetaDescription    string   `json:"meta_description"`
+	MetaKeywords       []string `json:"meta_keywords"`
+	Status             string   `json:"status" validate:"required,oneof=draft published archived"`
+	IsFeatured         bool     `json:"is_featured"`
+	ReadingTimeMinutes int      `json:"reading_time_minutes"`
+}
+
 func (h *BlogPostHandler) GetAll(c *fiber.Ctx) error {
 	page, _ := strconv.Atoi(c.Query("page", "1"))
 	limit, _ := strconv.Atoi(c.Query("limit", "20"))
@@ -173,21 +191,47 @@ func (h *BlogPostHandler) Create(c *fiber.Ctx) error {
 		metaKeywords = []string{}
 	}
 
+	// Handle optional string fields
+	var excerpt *string
+	if req.Excerpt != "" {
+		excerpt = &req.Excerpt
+	}
+
+	var featuredImageURL *string
+	if req.FeaturedImageURL != "" {
+		featuredImageURL = &req.FeaturedImageURL
+	}
+
+	var metaTitle *string
+	if req.MetaTitle != "" {
+		metaTitle = &req.MetaTitle
+	}
+
+	var metaDescription *string
+	if req.MetaDescription != "" {
+		metaDescription = &req.MetaDescription
+	}
+
+	var readingTime *int
+	if req.ReadingTimeMinutes > 0 {
+		readingTime = &req.ReadingTimeMinutes
+	}
+
 	post := &domain.BlogPost{
 		Title:              req.Title,
 		Slug:               req.Slug,
-		Excerpt:            &req.Excerpt,
+		Excerpt:            excerpt,
 		Content:            req.Content,
-		FeaturedImageURL:   &req.FeaturedImageURL,
+		FeaturedImageURL:   featuredImageURL,
 		AuthorID:           req.AuthorID,
 		CategoryID:         req.CategoryID,
 		Tags:               pq.StringArray(tags),
-		MetaTitle:          &req.MetaTitle,
-		MetaDescription:    &req.MetaDescription,
+		MetaTitle:          metaTitle,
+		MetaDescription:    metaDescription,
 		MetaKeywords:       pq.StringArray(metaKeywords),
 		Status:             req.Status,
 		IsFeatured:         req.IsFeatured,
-		ReadingTimeMinutes: &req.ReadingTimeMinutes,
+		ReadingTimeMinutes: readingTime,
 		PublishedAt:        publishedAt,
 	}
 
@@ -199,15 +243,17 @@ func (h *BlogPostHandler) Create(c *fiber.Ctx) error {
 	return response.Created(c, "Blog post created successfully", post)
 }
 
+// ✅ FIX: Complete Update handler
 func (h *BlogPostHandler) Update(c *fiber.Ctx) error {
-	id, err := c.ParamsInt("id")
+	id, err := strconv.Atoi(c.Params("id"))
 	if err != nil {
-		return response.Error(c, fiber.NewError(400, "Invalid post ID"))
+		return response.Error(c, fiber.NewError(fiber.StatusBadRequest, "Invalid post ID"))
 	}
 
-	var req CreateBlogPostRequest
+	var req UpdateBlogPostRequest
 	if err := c.BodyParser(&req); err != nil {
-		return response.Error(c, err)
+		logger.Error("Failed to parse update request", zap.Error(err))
+		return response.Error(c, fiber.NewError(400, "Invalid request body"))
 	}
 
 	if err := validator.Validate(req); err != nil {
@@ -216,13 +262,13 @@ func (h *BlogPostHandler) Update(c *fiber.Ctx) error {
 
 	adminID := middleware.GetAdminID(c)
 
-	var publishedAt *time.Time
-	if req.Status == "published" {
-		now := time.Now()
-		publishedAt = &now
+	// ✅ Get existing post
+	existingPost, err := h.postService.GetPostByID(c.Context(), int64(id), false)
+	if err != nil {
+		return response.Error(c, err)
 	}
 
-	// Ensure arrays
+	// ✅ Ensure arrays are not nil
 	tags := req.Tags
 	if tags == nil {
 		tags = []string{}
@@ -233,23 +279,59 @@ func (h *BlogPostHandler) Update(c *fiber.Ctx) error {
 		metaKeywords = []string{}
 	}
 
+	// Handle optional string fields
+	var excerpt *string
+	if req.Excerpt != "" {
+		excerpt = &req.Excerpt
+	}
+
+	var featuredImageURL *string
+	if req.FeaturedImageURL != "" {
+		featuredImageURL = &req.FeaturedImageURL
+	}
+
+	var metaTitle *string
+	if req.MetaTitle != "" {
+		metaTitle = &req.MetaTitle
+	}
+
+	var metaDescription *string
+	if req.MetaDescription != "" {
+		metaDescription = &req.MetaDescription
+	}
+
+	var readingTime *int
+	if req.ReadingTimeMinutes > 0 {
+		readingTime = &req.ReadingTimeMinutes
+	}
+
+	// ✅ Build updated post
 	post := &domain.BlogPost{
 		ID:                 int64(id),
 		Title:              req.Title,
 		Slug:               req.Slug,
-		Excerpt:            &req.Excerpt,
+		Excerpt:            excerpt,
 		Content:            req.Content,
-		FeaturedImageURL:   &req.FeaturedImageURL,
+		FeaturedImageURL:   featuredImageURL,
 		AuthorID:           req.AuthorID,
 		CategoryID:         req.CategoryID,
 		Tags:               pq.StringArray(tags),
-		MetaTitle:          &req.MetaTitle,
-		MetaDescription:    &req.MetaDescription,
+		MetaTitle:          metaTitle,
+		MetaDescription:    metaDescription,
 		MetaKeywords:       pq.StringArray(metaKeywords),
 		Status:             req.Status,
 		IsFeatured:         req.IsFeatured,
-		ReadingTimeMinutes: &req.ReadingTimeMinutes,
-		PublishedAt:        publishedAt,
+		ReadingTimeMinutes: readingTime,
+	}
+
+	// ✅ Handle published_at
+	if req.Status == "published" && existingPost.Status != "published" {
+		now := time.Now()
+		post.PublishedAt = &now
+	} else if req.Status == "published" && existingPost.PublishedAt != nil {
+		post.PublishedAt = existingPost.PublishedAt
+	} else if req.Status != "published" {
+		post.PublishedAt = nil
 	}
 
 	if err := h.postService.UpdatePost(c.Context(), post, adminID); err != nil {
@@ -314,4 +396,9 @@ func (h *BlogPostHandler) Search(c *fiber.Ctx) error {
 		"query":   query,
 		"total":   len(posts),
 	})
+}
+
+// Helper function
+func strPtr(s string) *string {
+	return &s
 }
