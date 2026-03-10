@@ -58,7 +58,7 @@ func (s *EmailService) SendOrderConfirmation(ctx context.Context, order *domain.
 }
 
 func (s *EmailService) SendOrderApproval(ctx context.Context, order *domain.Order, items []*domain.OrderItem) error {
-	subject := fmt.Sprintf("Order Approved - Download Your Templates")
+	subject := "Order Approved - Download Your Templates"
 	
 	downloadLink := fmt.Sprintf("%s/orders/download/%s?token=%s", s.cfg.Frontend.URL, order.OrderNumber, *order.DownloadToken)
 	

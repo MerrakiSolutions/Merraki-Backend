@@ -65,7 +65,7 @@ func (r *BlogPostRepository) FindBySlug(ctx context.Context, slug string) (*doma
 // GetAll with comprehensive filters
 func (r *BlogPostRepository) GetAll(ctx context.Context, filters map[string]interface{}, limit, offset int) ([]*domain.BlogPost, int, error) {
 	var posts []*domain.BlogPost
-	
+
 	query := `SELECT * FROM blog_posts WHERE 1=1`
 	countQuery := `SELECT COUNT(*) FROM blog_posts WHERE 1=1`
 	args := []interface{}{}
@@ -364,7 +364,7 @@ func (r *BlogPostRepository) Search(ctx context.Context, searchTerm string, limi
 
 func (r *BlogPostRepository) GetByAuthor(ctx context.Context, authorID int64, limit, offset int) ([]*domain.BlogPost, int, error) {
 	var posts []*domain.BlogPost
-	
+
 	query := `SELECT * FROM blog_posts WHERE author_id = $1 AND status = 'published' ORDER BY published_at DESC LIMIT $2 OFFSET $3`
 	countQuery := `SELECT COUNT(*) FROM blog_posts WHERE author_id = $1 AND status = 'published'`
 
@@ -382,7 +382,7 @@ func (r *BlogPostRepository) GetByAuthor(ctx context.Context, authorID int64, li
 
 func (r *BlogPostRepository) GetByCategory(ctx context.Context, categoryID int64, limit, offset int) ([]*domain.BlogPost, int, error) {
 	var posts []*domain.BlogPost
-	
+
 	query := `SELECT * FROM blog_posts WHERE category_id = $1 AND status = 'published' ORDER BY published_at DESC LIMIT $2 OFFSET $3`
 	countQuery := `SELECT COUNT(*) FROM blog_posts WHERE category_id = $1 AND status = 'published'`
 
@@ -400,7 +400,7 @@ func (r *BlogPostRepository) GetByCategory(ctx context.Context, categoryID int64
 
 func (r *BlogPostRepository) GetByTag(ctx context.Context, tag string, limit, offset int) ([]*domain.BlogPost, int, error) {
 	var posts []*domain.BlogPost
-	
+
 	query := `SELECT * FROM blog_posts WHERE $1 = ANY(tags) AND status = 'published' ORDER BY published_at DESC LIMIT $2 OFFSET $3`
 	countQuery := `SELECT COUNT(*) FROM blog_posts WHERE $1 = ANY(tags) AND status = 'published'`
 

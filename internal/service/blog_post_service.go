@@ -301,9 +301,13 @@ func (s *BlogPostService) SearchPosts(ctx context.Context, query string, limit i
 	return s.postRepo.Search(ctx, query, limit)
 }
 
-func (s *BlogPostService) GetPostsByAuthor(ctx context.Context, authorSlug string, limit, offset int) ([]*domain.BlogPost, int, error) {
-	// Get author by slug first
-	author, err := s.authorRepo.FindBySlug(ctx, authorSlug)
+func (s *BlogPostService) GetPostsByAuthor(
+	ctx context.Context, 
+	authorID int64, 
+	limit, 
+	offset int) ([]*domain.BlogPost, int, error) {
+	// Get author by ID first
+	author, err := s.authorRepo.FindByID(ctx, authorID)
 	if err != nil {
 		return nil, 0, apperrors.Wrap(err, "DATABASE_ERROR", "Failed to find author", 500)
 	}
@@ -311,20 +315,16 @@ func (s *BlogPostService) GetPostsByAuthor(ctx context.Context, authorSlug strin
 		return nil, 0, apperrors.ErrNotFound
 	}
 
-	return s.postRepo.GetByAuthor(ctx, author.ID, limit, offset)
+	return s.postRepo.GetByAuthor(ctx, authorID, limit, offset)
 }
 
-func (s *BlogPostService) GetPostsByCategory(ctx context.Context, categorySlug string, limit, offset int) ([]*domain.BlogPost, int, error) {
-	// Get category by slug first
-	category, err := s.categoryRepo.FindBySlug(ctx, categorySlug)
-	if err != nil {
-		return nil, 0, apperrors.Wrap(err, "DATABASE_ERROR", "Failed to find category", 500)
-	}
-	if category == nil {
-		return nil, 0, apperrors.ErrNotFound
-	}
-
-	return s.postRepo.GetByCategory(ctx, category.ID, limit, offset)
+func (s *BlogPostService) GetPostsByCategory(
+    ctx context.Context,
+    categoryID int64,
+    limit int,
+    offset int,
+) ([]*domain.BlogPost, int, error) {
+    return s.postRepo.GetByCategory(ctx, categoryID, limit, offset)
 }
 
 func (s *BlogPostService) GetPostsByTag(ctx context.Context, tag string, limit, offset int) ([]*domain.BlogPost, int, error) {
