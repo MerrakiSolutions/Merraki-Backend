@@ -47,26 +47,25 @@ func SetupPublicRoutes(api fiber.Router, handlers *PublicHandlers) {
 	calculators.Post("/export-pdf", handlers.Calculator.ExportPDF)
 
 	// ========== BLOG ==========
-	blog := api.Group("/blog")
-	{
-		// Posts
-		blog.Get("/posts", handlers.Blog.GetAllPosts)
-		blog.Get("/posts/search", handlers.Blog.SearchPosts)
-		blog.Get("/posts/:slug", handlers.Blog.GetPostBySlug)
+	blog := public.Group("/blog")
 
-		// Categories
-		blog.Get("/categories", handlers.Blog.GetAllCategories)
-		blog.Get("/categories/:slug", handlers.Blog.GetCategoryBySlug)
-		blog.Get("/categories/:slug/posts", handlers.Blog.GetPostsByCategory)
+	// Posts
+	blog.Get("/posts", handlers.Blog.GetAllPosts)
+	blog.Get("/posts/search", handlers.Blog.SearchPosts)
+	blog.Get("/posts/:slug", handlers.Blog.GetPostBySlug)
 
-		// Authors
-		blog.Get("/authors", handlers.Blog.GetAllAuthors)
-		blog.Get("/authors/:slug", handlers.Blog.GetAuthorBySlug)
-		blog.Get("/authors/:slug/posts", handlers.Blog.GetPostsByAuthor)
+	// Authors
+	blog.Get("/authors", handlers.Blog.GetAllAuthors)
+	blog.Get("/authors/:slug", handlers.Blog.GetAuthorBySlug)
+	blog.Get("/authors/:slug/posts", handlers.Blog.GetPostsByAuthor)
 
-		// Tags
-		blog.Get("/tags/:tag/posts", handlers.Blog.GetPostsByTag)
-	}
+	// Categories
+	blog.Get("/categories", handlers.Blog.GetAllCategories)
+	blog.Get("/categories/:slug", handlers.Blog.GetCategoryBySlug)
+	blog.Get("/categories/:slug/posts", handlers.Blog.GetPostsByCategory)
+
+	// Tags
+	blog.Get("/tags/:tag/posts", handlers.Blog.GetPostsByTag)
 
 	// ========== NEWSLETTER ==========
 	newsletter := public.Group("/newsletter")
