@@ -54,7 +54,7 @@ func SetupAdminRoutes(api fiber.Router, handlers *AdminHandlers, cfg *config.Con
 
 	// ========== TEMPLATES ==========
 	templates := protected.Group("/templates")
-	templates.Get("/analytics", handlers.Template.GetAnalytics) // Must be before /:id
+	templates.Get("/analytics", handlers.Template.GetAnalytics)
 	templates.Get("/", handlers.Template.GetAll)
 	templates.Get("/:id", handlers.Template.GetByID)
 	templates.Post("/", handlers.Template.Create)
@@ -65,7 +65,7 @@ func SetupAdminRoutes(api fiber.Router, handlers *AdminHandlers, cfg *config.Con
 
 	// ========== ORDERS ==========
 	orders := protected.Group("/orders")
-	orders.Get("/analytics/revenue", handlers.Order.GetRevenueAnalytics) // Must be before /:id
+	orders.Get("/analytics/revenue", handlers.Order.GetRevenueAnalytics)
 	orders.Get("/pending", handlers.Order.GetPending)
 	orders.Get("/", handlers.Order.GetAll)
 	orders.Get("/:id", handlers.Order.GetByID)
@@ -77,7 +77,7 @@ func SetupAdminRoutes(api fiber.Router, handlers *AdminHandlers, cfg *config.Con
 	
 	// Posts
 	posts := blogManagement.Group("/posts")
-	posts.Get("/search", handlers.BlogPost.Search) // Must be before /:id
+	posts.Get("/search", handlers.BlogPost.Search)
 	posts.Get("/", handlers.BlogPost.GetAll)
 	posts.Get("/:id", handlers.BlogPost.GetByID)
 	posts.Get("/slug/:slug", handlers.BlogPost.GetBySlug)
@@ -130,7 +130,7 @@ func SetupAdminRoutes(api fiber.Router, handlers *AdminHandlers, cfg *config.Con
 
 	// ========== CONTACTS ==========
 	contacts := protected.Group("/contacts")
-	contacts.Get("/analytics", handlers.Contact.GetAnalytics) // Must be before /
+	contacts.Get("/analytics", handlers.Contact.GetAnalytics)
 	contacts.Get("/", handlers.Contact.GetAll)
 	contacts.Get("/:id", handlers.Contact.GetByID)
 	contacts.Put("/:id", handlers.Contact.Update)
@@ -152,7 +152,7 @@ func SetupAdminRoutes(api fiber.Router, handlers *AdminHandlers, cfg *config.Con
 
 	// ========== CALCULATORS ==========
 	calculators := protected.Group("/calculators")
-	calculators.Get("/analytics", handlers.Calculator.GetAnalytics) // Must be before /
+	calculators.Get("/analytics", handlers.Calculator.GetAnalytics)
 	calculators.Get("/results", handlers.Calculator.GetAll)
 
 	// ========== ADMIN USERS ==========
