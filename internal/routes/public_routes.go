@@ -14,10 +14,11 @@ type PublicHandlers struct {
 	Order    *publicHandlers.OrderHandler
 	Checkout *publicHandlers.CheckoutHandler
 	Download *publicHandlers.DownloadHandler
-	Currency   *publicHandlers.CurrencyHandler
 	Blog       *publicHandlers.BlogHandler
 	Newsletter *publicHandlers.NewsletterHandler
 	Contact    *publicHandlers.ContactHandler
+	Utility    *publicHandlers.UtilityHandler   
+	Currency   *publicHandlers.CurrencyHandler  
 }
 
 // ============================================================================

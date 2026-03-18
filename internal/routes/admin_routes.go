@@ -13,13 +13,13 @@ type AdminHandlers struct {
 	Order        *adminHandlers.OrderHandler
 	Template     *adminHandlers.TemplateHandler
 	Category     *adminHandlers.CategoryHandler
-	Currency     *adminHandlers.CurrencyHandler
 	BlogPost     *adminHandlers.BlogPostHandler
 	BlogAuthor   *adminHandlers.BlogAuthorHandler
 	BlogCategory *adminHandlers.BlogCategoryHandler
 	Newsletter   *adminHandlers.NewsletterHandler
 	Contact      *adminHandlers.ContactHandler
 	AdminUser    *adminHandlers.AdminUserHandler
+	Currency     *adminHandlers.CurrencyHandler
 }
 
 func SetupAdminRoutes(api fiber.Router, h *AdminHandlers, cfg *config.Config) {
