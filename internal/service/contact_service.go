@@ -108,11 +108,11 @@ func (s *ContactService) ReplyToContact(ctx context.Context, contactID int64, re
 		return apperrors.ErrNotFound
 	}
 
-	// Update contact
-	now := timePtr(time.Now())
+	// Update contact status and reply details
+	now := time.Now()
 	contact.Status = "replied"
+	contact.RepliedAt = &now
 	contact.RepliedBy = &repliedBy
-	contact.RepliedAt = now
 	contact.ReplyNotes = &replyMessage
 
 	if err := s.contactRepo.Update(ctx, contact); err != nil {

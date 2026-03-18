@@ -1,252 +1,202 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
 	"github.com/merraki/merraki-backend/internal/config"
-	adminHandlers "github.com/merraki/merraki-backend/internal/handler/admin"
-	publicHandlers "github.com/merraki/merraki-backend/internal/handler/public"
-	"github.com/merraki/merraki-backend/internal/middleware"
 	"github.com/merraki/merraki-backend/internal/pkg/logger"
 	"github.com/merraki/merraki-backend/internal/repository/postgres"
-	"github.com/merraki/merraki-backend/internal/repository/redis"
-	"github.com/merraki/merraki-backend/internal/routes"
 	"github.com/merraki/merraki-backend/internal/service"
+	"github.com/merraki/merraki-backend/internal/worker"
 	"go.uber.org/zap"
 )
 
 func main() {
-	// Load configuration
+	// ========================================================================
+	// LOAD CONFIGURATION
+	// ========================================================================
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal("Failed to load config:", err)
 	}
 
-	// Initialize logger
+	// ========================================================================
+	// INITIALIZE LOGGER
+	// ========================================================================
 	if err := logger.InitLogger(cfg.Logging.Level, cfg.Logging.Format, cfg.Logging.Output); err != nil {
 		log.Fatal("Failed to initialize logger:", err)
 	}
 	defer logger.Sync()
 
-	logger.Info("Starting Merraki API Server",
+	logger.Info("🔧 Starting Merraki Background Worker",
 		zap.String("env", cfg.Server.Environment),
-		zap.Int("port", cfg.Server.Port),
-		zap.String("version", cfg.Server.APIVersion),
 	)
 
-	// Initialize database
+	// ========================================================================
+	// INITIALIZE DATABASE
+	// ========================================================================
 	db, err := postgres.NewDatabase(cfg)
 	if err != nil {
 		logger.Fatal("Failed to connect to database", zap.Error(err))
 	}
 	defer db.Close()
 
-	// Initialize Redis
-	redisClient, err := redis.NewRedisClient(cfg)
-	if err != nil {
-		logger.Fatal("Failed to connect to Redis", zap.Error(err))
-	}
+	logger.Info("✅ Database connected")
 
-	// ============================================
+	// ========================================================================
 	// INITIALIZE REPOSITORIES
-	// ============================================
-	adminRepo := postgres.NewAdminRepository(db)
+	// ========================================================================
+	
 	sessionRepo := postgres.NewSessionRepository(db)
-	templateRepo := postgres.NewTemplateRepository(db)
-	categoryRepo := postgres.NewCategoryRepository(db)
-	orderRepo := postgres.NewOrderRepository(db)
 	
-	// Blog repositories
-	blogPostRepo := postgres.NewBlogPostRepository(db)
-	blogAuthorRepo := postgres.NewBlogAuthorRepository(db)
-	blogCategoryRepo := postgres.NewBlogCategoryRepository(db)
-	
-	newsletterRepo := postgres.NewNewsletterRepository(db)
-	contactRepo := postgres.NewContactRepository(db)
-	testRepo := postgres.NewTestRepository(db)
-	calculatorRepo := postgres.NewCalculatorRepository(db)
-	activityLogRepo := postgres.NewActivityLogRepository(db)
+	// Marketplace repos
+	orderRepo := postgres.NewOrderRepository(db.DB)
+	orderItemRepo := postgres.NewOrderItemRepository(db.DB)
+	paymentRepo := postgres.NewPaymentRepository(db.DB)
+	webhookRepo := postgres.NewPaymentWebhookRepository(db.DB)
+	downloadTokenRepo := postgres.NewDownloadTokenRepository(db.DB)
+	downloadRepo := postgres.NewDownloadRepository(db.DB)
+	idempotencyRepo := postgres.NewIdempotencyKeyRepository(db.DB)
+	templateRepo := postgres.NewTemplateRepository(db.DB)
+	circuitBreakerRepo := postgres.NewCircuitBreakerRepository(db.DB)
+	jobRepo := postgres.NewBackgroundJobRepository(db.DB)
 
-	// ============================================
+	logger.Info("✅ Repositories initialized")
+
+	// ========================================================================
 	// INITIALIZE SERVICES
-	// ============================================
+	// ========================================================================
+	
+	// Storage
 	storageService, err := service.NewStorageService(cfg)
 	if err != nil {
 		logger.Fatal("Failed to initialize storage service", zap.Error(err))
 	}
 
-	_ = service.NewPDFService(storageService)
-	_ = service.NewCurrencyService(cfg)
-
+	// Email
 	emailService := service.NewEmailService(cfg)
-	paymentService := service.NewPaymentService(cfg)
 
-	authService, err := service.NewAuthService(adminRepo, sessionRepo, activityLogRepo, cfg)
-	if err != nil {
-		logger.Fatal("Failed to initialize auth service", zap.Error(err))
-	}
+	// PDF
+	pdfService := service.NewPDFService(storageService)
 
-	adminService := service.NewAdminService(adminRepo, activityLogRepo)
-	categoryService := service.NewCategoryService(categoryRepo, activityLogRepo)
-	templateService := service.NewTemplateService(templateRepo, categoryRepo, activityLogRepo)
-	orderService := service.NewOrderService(orderRepo, templateRepo, activityLogRepo, paymentService, emailService)
-	
-	// Blog services
-	blogAuthorService := service.NewBlogAuthorService(blogAuthorRepo, activityLogRepo)
-	blogCategoryService := service.NewBlogCategoryService(blogCategoryRepo, activityLogRepo)
-	blogPostService := service.NewBlogPostService(blogPostRepo, blogAuthorRepo, blogCategoryRepo, activityLogRepo)
-	
-	newsletterService := service.NewNewsletterService(newsletterRepo, emailService)
-	contactService := service.NewContactService(contactRepo, activityLogRepo, emailService)
-	testService := service.NewTestService(testRepo, activityLogRepo, emailService)
-	calculatorService := service.NewCalculatorService(calculatorRepo)
-	dashboardService := service.NewDashboardService(db.Pool)
+	// Payment
+	paymentService := service.NewPaymentService(cfg, webhookRepo, circuitBreakerRepo)
 
-	// ============================================
-	// INITIALIZE HANDLERS
-	// ============================================
-	// Admin Handlers
-	adminHandlersStruct := &routes.AdminHandlers{
-		Auth:         adminHandlers.NewAuthHandler(authService),
-		Dashboard:    adminHandlers.NewDashboardHandler(dashboardService),
-		Template:     adminHandlers.NewTemplateHandler(templateService),
-		Order:        adminHandlers.NewOrderHandler(orderService),
-		BlogPost:     adminHandlers.NewBlogPostHandler(blogPostService),
-		BlogAuthor:   adminHandlers.NewBlogAuthorHandler(blogAuthorService),
-		BlogCategory: adminHandlers.NewBlogCategoryHandler(blogCategoryService),
-		Contact:      adminHandlers.NewContactHandler(contactService),
-		Test:         adminHandlers.NewTestHandler(testService),
-		Calculator:   adminHandlers.NewCalculatorHandler(calculatorService),
-		AdminUser:    adminHandlers.NewAdminUserHandler(adminService),
-	}
+	// Download token service
+	downloadTokenService := service.NewDownloadTokenService(
+		downloadTokenRepo,
+		downloadRepo,
+		orderRepo,
+		orderItemRepo,
+		templateRepo,
+		storageService,
+		
+	)
 
-	// Public Handlers
-	publicHandlersStruct := &routes.PublicHandlers{
-		Template:   publicHandlers.NewTemplateHandler(templateService, categoryService),
-		Order:      publicHandlers.NewOrderHandler(orderService),
-		Calculator: publicHandlers.NewCalculatorHandler(calculatorService),
-		Blog:       publicHandlers.NewBlogHandler(blogPostService, blogAuthorService, blogCategoryService),
-		Newsletter: publicHandlers.NewNewsletterHandler(newsletterService),
-		Contact:    publicHandlers.NewContactHandler(contactService),
-		Test:       publicHandlers.NewTestHandler(testService),
-		Utility:    publicHandlers.NewUtilityHandler(db, redisClient),
-	}
+	logger.Info("✅ Services initialized")
 
-	// ============================================
-	// INITIALIZE FIBER APP
-	// ============================================
-	app := fiber.New(fiber.Config{
-		ErrorHandler: func(c *fiber.Ctx, err error) error {
-			logger.Error("Fiber error",
-				zap.Error(err),
-				zap.String("path", c.Path()),
-				zap.String("method", c.Method()),
-			)
+	// ========================================================================
+	// INITIALIZE WORKERS
+	// ========================================================================
 
-			if cfg.Server.Environment == "development" {
-				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-					"success": false,
-					"message": err.Error(),
-					"code":    "INTERNAL_ERROR",
-					"path":    c.Path(),
-				})
-			}
+	// Main job processor
+	jobProcessor := worker.NewJobProcessor(
+		jobRepo,
+		orderRepo,
+		orderItemRepo,
+		paymentRepo,
+		webhookRepo,
+		downloadTokenRepo,
+		idempotencyRepo,
+		emailService,
+		downloadTokenService,
+		paymentService,
+		pdfService,
+		storageService,
+		"worker-standalone-1",
+	)
 
-			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"success": false,
-				"message": "Internal server error",
-				"code":    "INTERNAL_ERROR",
-			})
-		},
-		BodyLimit:             10 * 1024 * 1024,
-		ReadTimeout:           30 * time.Second,
-		WriteTimeout:          30 * time.Second,
-		IdleTimeout:           120 * time.Second,
-		DisableStartupMessage: false,
-		AppName:               "Merraki API v1.0.0",
-	})
+	// Scheduled job runner
+	scheduledRunner := worker.NewScheduledJobRunner(jobRepo)
 
-	// ============================================
-	// GLOBAL MIDDLEWARE
-	// ============================================
-	app.Use(middleware.Recovery())
-	app.Use(middleware.RequestID())
-	app.Use(middleware.Logger())
-	app.Use(middleware.Security())
-	app.Use(middleware.CORS(cfg))
-	app.Use(middleware.RateLimit(100, 1*time.Minute))
+	// Create context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// ============================================
-	// ROOT & HEALTH ENDPOINTS
-	// ============================================
-	app.Get("/", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{
-			"success": true,
-			"message": "Merraki API Server",
-			"version": "1.0.0",
-			"docs":    "/api/v1/docs",
-		})
-	})
+	// ========================================================================
+	// START WORKERS
+	// ========================================================================
 
-	app.Get("/health", publicHandlersStruct.Utility.Health)
-
-	// ============================================
-	// API ROUTES
-	// ============================================
-	api := app.Group("/api/v1")
-
-	// Setup Public Routes
-	routes.SetupPublicRoutes(api, publicHandlersStruct)
-
-	// Setup Admin Routes
-	routes.SetupAdminRoutes(api, adminHandlersStruct, cfg)
-
-	// ============================================
-	// 404 HANDLER
-	// ============================================
-	app.Use(func(c *fiber.Ctx) error {
-		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-			"success": false,
-			"message": "Route not found",
-			"code":    "NOT_FOUND",
-			"path":    c.Path(),
-		})
-	})
-
-	// ============================================
-	// START SERVER
-	// ============================================
+	// Start job processor
 	go func() {
-		addr := fmt.Sprintf(":%d", cfg.Server.Port)
-		logger.Info("🚀 Server starting",
-			zap.String("address", addr),
-			zap.String("env", cfg.Server.Environment),
-		)
-		logger.Info("📚 API Documentation: http://localhost:"+fmt.Sprint(cfg.Server.Port)+"/api/v1/docs")
-		logger.Info("❤️  Health Check: http://localhost:"+fmt.Sprint(cfg.Server.Port)+"/health")
-
-		if err := app.Listen(addr); err != nil {
-			logger.Fatal("Failed to start server", zap.Error(err))
+		logger.Info("🚀 Starting job processor...")
+		if err := jobProcessor.Start(ctx); err != nil {
+			logger.Error("Job processor error", zap.Error(err))
 		}
 	}()
 
-	// ============================================
+	// Start scheduled runner
+	go func() {
+		logger.Info("🚀 Starting scheduled job runner...")
+		if err := scheduledRunner.Start(ctx); err != nil {
+			logger.Error("Scheduled runner error", zap.Error(err))
+		}
+	}()
+
+	// Start session cleanup
+	go cleanupExpiredSessions(ctx, sessionRepo)
+
+	logger.Info("✅ All workers started successfully")
+
+	// ========================================================================
 	// GRACEFUL SHUTDOWN
-	// ============================================
+	// ========================================================================
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
 
-	logger.Info("⚠️  Shutting down server...")
-	if err := app.Shutdown(); err != nil {
-		logger.Error("Server shutdown error", zap.Error(err))
-	}
+	logger.Info("⚠️  Shutting down workers...")
 
-	logger.Info("✅ Server stopped gracefully")
+	// Cancel context to stop all workers
+	cancel()
+
+	// Stop workers gracefully
+	jobProcessor.Stop()
+	scheduledRunner.Stop()
+
+	// Wait for cleanup
+	time.Sleep(2 * time.Second)
+
+	logger.Info("✅ Workers stopped gracefully")
+}
+
+// ============================================================================
+// CLEANUP EXPIRED SESSIONS
+// ============================================================================
+
+func cleanupExpiredSessions(ctx context.Context, sessionRepo *postgres.SessionRepository) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("Session cleanup stopped")
+			return
+
+		case <-ticker.C:
+			logger.Info("Cleaning up expired sessions...")
+			if err := sessionRepo.CleanExpired(ctx); err != nil {
+				logger.Error("Failed to cleanup sessions", zap.Error(err))
+			} else {
+				logger.Info("✅ Expired sessions cleaned up")
+			}
+		}
+	}
 }

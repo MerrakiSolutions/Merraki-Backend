@@ -5,140 +5,231 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/merraki/merraki-backend/internal/domain"
-	"github.com/merraki/merraki-backend/internal/middleware"
-	"github.com/merraki/merraki-backend/internal/pkg/response"
+	"github.com/merraki/merraki-backend/internal/pkg/logger"
 	"github.com/merraki/merraki-backend/internal/service"
+	"go.uber.org/zap"
 )
+
+// ============================================================================
+// ADMIN ORDER HANDLER - Order management
+// ============================================================================
 
 type OrderHandler struct {
 	orderService *service.OrderService
 }
 
 func NewOrderHandler(orderService *service.OrderService) *OrderHandler {
-	return &OrderHandler{orderService: orderService}
+	return &OrderHandler{
+		orderService: orderService,
+	}
 }
 
-func (h *OrderHandler) GetAll(c *fiber.Ctx) error {
+// ============================================================================
+// GET ALL ORDERS
+// ============================================================================
+
+// GET /api/v1/admin/orders?status=pending&page=1&limit=20
+func (h *OrderHandler) GetAllOrders(c *fiber.Ctx) error {
+	// Parse query parameters
 	page, _ := strconv.Atoi(c.Query("page", "1"))
 	limit, _ := strconv.Atoi(c.Query("limit", "20"))
 
-	params := &domain.PaginationParams{
-		Page:  page,
-		Limit: limit,
+	if page < 1 {
+		page = 1
 	}
-	params.Validate()
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
 
+	// Build filters
 	filters := make(map[string]interface{})
+	
 	if status := c.Query("status"); status != "" {
-		filters["status"] = status
-	}
-	if paymentStatus := c.Query("payment_status"); paymentStatus != "" {
-		filters["payment_status"] = paymentStatus
-	}
-	if search := c.Query("search"); search != "" {
-		filters["search"] = search
-	}
-	if startDate := c.Query("start_date"); startDate != "" {
-		filters["start_date"] = startDate
-	}
-	if endDate := c.Query("end_date"); endDate != "" {
-		filters["end_date"] = endDate
-	}
-	if sort := c.Query("sort"); sort != "" {
-		filters["sort"] = sort
+		filters["status"] = domain.OrderStatus(status)
 	}
 
-	orders, total, err := h.orderService.GetAllOrders(c.Context(), filters, params.Limit, params.GetOffset())
+	if email := c.Query("email"); email != "" {
+		filters["email"] = email
+	}
+
+	orders, total, err := h.orderService.GetAllOrders(
+		c.Context(),
+		filters,
+		page,
+		limit,
+	)
 	if err != nil {
-		return response.Error(c, err)
+		logger.Error("Failed to get orders", zap.Error(err))
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to get orders",
+		})
 	}
 
-	return response.Paginated(c, orders, total, params.Page, params.Limit)
-}
-
-func (h *OrderHandler) GetPending(c *fiber.Ctx) error {
-	page, _ := strconv.Atoi(c.Query("page", "1"))
-	limit, _ := strconv.Atoi(c.Query("limit", "50"))
-
-	params := &domain.PaginationParams{
-		Page:  page,
-		Limit: limit,
-	}
-	params.Validate()
-
-	orders, total, err := h.orderService.GetPendingApprovals(c.Context(), params.Limit, params.GetOffset())
-	if err != nil {
-		return response.Error(c, err)
-	}
-
-	return response.Paginated(c, orders, total, params.Page, params.Limit)
-}
-
-func (h *OrderHandler) GetByID(c *fiber.Ctx) error {
-	id, err := c.ParamsInt("id")
-	if err != nil {
-		return response.Error(c, fiber.NewError(400, "Invalid order ID"))
-	}
-
-	order, items, err := h.orderService.GetOrderByID(c.Context(), int64(id))
-	if err != nil {
-		return response.Error(c, err)
-	}
-
-	return response.SuccessData(c, fiber.Map{
-		"order": order,
-		"items": items,
+	return c.JSON(fiber.Map{
+		"orders": orders,
+		"total":  total,
+		"page":   page,
+		"limit":  limit,
 	})
 }
 
-func (h *OrderHandler) Approve(c *fiber.Ctx) error {
-	id, err := c.ParamsInt("id")
+// ============================================================================
+// GET ORDER BY ID
+// ============================================================================
+
+// GET /api/v1/admin/orders/:id
+func (h *OrderHandler) GetOrderByID(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		return response.Error(c, fiber.NewError(400, "Invalid order ID"))
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid order ID",
+		})
 	}
 
-	adminID := middleware.GetAdminID(c)
-
-	if err := h.orderService.ApproveOrder(c.Context(), int64(id), adminID); err != nil {
-		return response.Error(c, err)
+	order, err := h.orderService.GetOrderByID(c.Context(), id)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Order not found",
+		})
 	}
 
-	return response.Success(c, "Order approved and download link sent to customer", nil)
+	// Get state transitions
+	transitions, _ := h.orderService.GetOrderTransitions(c.Context(), id)
+
+	return c.JSON(fiber.Map{
+		"order":       order,
+		"transitions": transitions,
+	})
 }
+
+// ============================================================================
+// APPROVE ORDER
+// ============================================================================
+
+type ApproveOrderRequest struct {
+	Notes *string `json:"notes"`
+}
+
+// POST /api/v1/admin/orders/:id/approve
+func (h *OrderHandler) ApproveOrder(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid order ID",
+		})
+	}
+
+	var req ApproveOrderRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	// Get admin ID from context (set by auth middleware)
+	adminID := c.Locals("admin_id").(int64)
+
+	err = h.orderService.ApproveOrder(c.Context(), id, adminID, req.Notes)
+	if err != nil {
+		logger.Error("Failed to approve order", zap.Error(err))
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to approve order",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Order approved successfully",
+	})
+}
+
+// ============================================================================
+// REJECT ORDER
+// ============================================================================
 
 type RejectOrderRequest struct {
 	Reason string `json:"reason" validate:"required"`
 }
 
-func (h *OrderHandler) Reject(c *fiber.Ctx) error {
-	id, err := c.ParamsInt("id")
+// POST /api/v1/admin/orders/:id/reject
+func (h *OrderHandler) RejectOrder(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		return response.Error(c, fiber.NewError(400, "Invalid order ID"))
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid order ID",
+		})
 	}
 
 	var req RejectOrderRequest
 	if err := c.BodyParser(&req); err != nil {
-		return response.Error(c, err)
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
 	}
 
-	adminID := middleware.GetAdminID(c)
-
-	if err := h.orderService.RejectOrder(c.Context(), int64(id), adminID, req.Reason); err != nil {
-		return response.Error(c, err)
+	if req.Reason == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Rejection reason is required",
+		})
 	}
 
-	return response.Success(c, "Order rejected and customer notified", nil)
+	// Get admin ID from context
+	adminID := c.Locals("admin_id").(int64)
+
+	err = h.orderService.RejectOrder(c.Context(), id, adminID, req.Reason)
+	if err != nil {
+		logger.Error("Failed to reject order", zap.Error(err))
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to reject order",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Order rejected successfully",
+	})
 }
 
-func (h *OrderHandler) GetRevenueAnalytics(c *fiber.Ctx) error {
-	startDate := c.Query("start_date")
-	endDate := c.Query("end_date")
-	groupBy := c.Query("group_by", "day")
+// ============================================================================
+// GET ORDERS PENDING REVIEW
+// ============================================================================
 
-	analytics, err := h.orderService.GetRevenueAnalytics(c.Context(), startDate, endDate, groupBy)
-	if err != nil {
-		return response.Error(c, err)
+// GET /api/v1/admin/orders/pending-review?page=1&limit=20
+func (h *OrderHandler) GetPendingReviewOrders(c *fiber.Ctx) error {
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	limit, _ := strconv.Atoi(c.Query("limit", "20"))
+
+	if page < 1 {
+		page = 1
+	}
+	if limit < 1 || limit > 100 {
+		limit = 20
 	}
 
-	return response.SuccessData(c, analytics)
+	filters := map[string]interface{}{
+		"status": domain.OrderStatusAdminReview,
+	}
+
+	orders, total, err := h.orderService.GetAllOrders(
+		c.Context(),
+		filters,
+		page,
+		limit,
+	)
+	if err != nil {
+		logger.Error("Failed to get pending orders", zap.Error(err))
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to get pending orders",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"orders": orders,
+		"total":  total,
+		"page":   page,
+		"limit":  limit,
+	})
 }

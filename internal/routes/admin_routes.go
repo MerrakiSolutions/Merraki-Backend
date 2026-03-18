@@ -2,172 +2,201 @@ package routes
 
 import (
 	"github.com/gofiber/fiber/v2"
+	"github.com/merraki/merraki-backend/internal/config"
 	adminHandlers "github.com/merraki/merraki-backend/internal/handler/admin"
 	"github.com/merraki/merraki-backend/internal/middleware"
-	"github.com/merraki/merraki-backend/internal/config"
 )
 
 type AdminHandlers struct {
-	Auth           *adminHandlers.AuthHandler
-	Dashboard      *adminHandlers.DashboardHandler
-	Template       *adminHandlers.TemplateHandler
-	Order          *adminHandlers.OrderHandler
-	BlogPost       *adminHandlers.BlogPostHandler
-	BlogAuthor     *adminHandlers.BlogAuthorHandler
-	BlogCategory   *adminHandlers.BlogCategoryHandler
-	Newsletter     *adminHandlers.NewsletterHandler
-	Contact        *adminHandlers.ContactHandler
-	Test           *adminHandlers.TestHandler
-	Calculator     *adminHandlers.CalculatorHandler
-	AdminUser      *adminHandlers.AdminUserHandler
+	Auth         *adminHandlers.AuthHandler
+	Dashboard    *adminHandlers.DashboardHandler
+	Order        *adminHandlers.OrderHandler
+	Template     *adminHandlers.TemplateHandler
+	Category     *adminHandlers.CategoryHandler
+	Currency     *adminHandlers.CurrencyHandler
+	BlogPost     *adminHandlers.BlogPostHandler
+	BlogAuthor   *adminHandlers.BlogAuthorHandler
+	BlogCategory *adminHandlers.BlogCategoryHandler
+	Newsletter   *adminHandlers.NewsletterHandler
+	Contact      *adminHandlers.ContactHandler
+	AdminUser    *adminHandlers.AdminUserHandler
 }
 
-func SetupAdminRoutes(api fiber.Router, handlers *AdminHandlers, cfg *config.Config) {
+func SetupAdminRoutes(api fiber.Router, h *AdminHandlers, cfg *config.Config) {
 	admin := api.Group("/admin")
 
-	// ========== AUTH (No authentication required) ==========
-	auth := admin.Group("/auth")
-	auth.Post("/login", handlers.Auth.Login)
-	auth.Post("/refresh", handlers.Auth.RefreshToken)
-
-	// ========== PROTECTED ROUTES ==========
+	setupAuthRoutes(admin, h)
 	protected := admin.Use(middleware.AdminAuth(cfg))
 
-	// Auth Management
-	authRoutes := protected.Group("/auth")
-	authRoutes.Post("/logout", handlers.Auth.Logout)
-	authRoutes.Post("/logout-all", handlers.Auth.LogoutAll)
-	authRoutes.Get("/me", handlers.Auth.GetMe)
-	authRoutes.Get("/sessions", handlers.Auth.GetSessions)
-	authRoutes.Delete("/sessions/:sessionId", handlers.Auth.RevokeSession)
-	authRoutes.Post("/change-password", handlers.Auth.ChangePassword)
-	authRoutes.Get("/login-history", handlers.Auth.GetLoginHistory)
+	setupProtectedAuthRoutes(protected, h)
+	setupDashboardRoutes(protected, h)
+	setupCurrencyRoutes(api, h)
+	setupBlogRoutes(protected, h)
+	setupOrderRoutes(protected, h)
+	setupTemplateRoutes(protected, h)
+	setupCategoryRoutes(protected, h)
+	setupContactRoutes(protected, h)
+	setupAdminUserRoutes(protected, h)
+	setupGlobalRoutes(protected, h)
+}
 
-	// ========== DASHBOARD ==========
-	dashboard := protected.Group("/dashboard")
-	dashboard.Get("/summary", handlers.Dashboard.GetSummary)
-	dashboard.Get("/stats", handlers.Dashboard.GetStats)
-	dashboard.Get("/activity", handlers.Dashboard.GetActivity)
-	dashboard.Get("/charts", handlers.Dashboard.GetCharts)
-	dashboard.Get("/notifications", handlers.Dashboard.GetNotifications)
-	dashboard.Put("/notifications/:id/read", handlers.Dashboard.MarkNotificationRead)
+/* ================= AUTH (PUBLIC) ================= */
 
-	// ========== TEMPLATES ==========
-	templates := protected.Group("/templates")
-	templates.Get("/analytics", handlers.Template.GetAnalytics)
-	templates.Get("/", handlers.Template.GetAll)
-	templates.Get("/:id", handlers.Template.GetByID)
-	templates.Post("/", handlers.Template.Create)
-	templates.Put("/:id", handlers.Template.Update)
-	templates.Delete("/:id", handlers.Template.Delete)
+func setupAuthRoutes(admin fiber.Router, h *AdminHandlers) {
+	auth := admin.Group("/auth")
 
-	// ========== CATEGORIES FOR TEMPLATES ========== //
+	auth.Post("/login", h.Auth.Login)
+	auth.Post("/refresh", h.Auth.RefreshToken)
+}
 
-	// ========== ORDERS ==========
-	orders := protected.Group("/orders")
-	orders.Get("/analytics/revenue", handlers.Order.GetRevenueAnalytics)
-	orders.Get("/pending", handlers.Order.GetPending)
-	orders.Get("/", handlers.Order.GetAll)
-	orders.Get("/:id", handlers.Order.GetByID)
-	orders.Post("/:id/approve", handlers.Order.Approve)
-	orders.Post("/:id/reject", handlers.Order.Reject)
+/* ================= AUTH (PROTECTED) ================= */
 
-	// ========== BLOG MANAGEMENT (BLOG,CATEGORIES FOR BLOGS , AUTHORS FOR CATEGORIES)==========
-	blogManagement := protected.Group("/blog")
-	
+func setupProtectedAuthRoutes(protected fiber.Router, h *AdminHandlers) {
+	auth := protected.Group("/auth")
+
+	auth.Post("/logout", h.Auth.Logout)
+	auth.Post("/logout-all", h.Auth.LogoutAll)
+	auth.Get("/me", h.Auth.GetMe)
+	auth.Get("/sessions", h.Auth.GetSessions)
+	auth.Delete("/sessions/:sessionId", h.Auth.RevokeSession)
+	auth.Post("/change-password", h.Auth.ChangePassword)
+	auth.Get("/login-history", h.Auth.GetLoginHistory)
+}
+
+/* ================= DASHBOARD ================= */
+
+func setupDashboardRoutes(protected fiber.Router, h *AdminHandlers) {
+	d := protected.Group("/dashboard")
+
+	d.Get("/summary", h.Dashboard.GetSummary)
+	d.Get("/stats", h.Dashboard.GetStats)
+	d.Get("/activity", h.Dashboard.GetActivity)
+	d.Get("/charts", h.Dashboard.GetCharts)
+	d.Get("/notifications", h.Dashboard.GetNotifications)
+	d.Put("/notifications/:id/read", h.Dashboard.MarkNotificationRead)
+}
+
+/* ================= CURRENCY ================= */
+
+func setupCurrencyRoutes(api fiber.Router, h *AdminHandlers) {
+	api.Post("/currency/refresh", h.Currency.RefreshRates)
+}
+
+/* ================= BLOG ================= */
+
+func setupBlogRoutes(protected fiber.Router, h *AdminHandlers) {
+	blog := protected.Group("/blog")
+
 	// Posts
-	posts := blogManagement.Group("/posts")
-	posts.Get("/search", handlers.BlogPost.Search)
-	posts.Get("/", handlers.BlogPost.GetAll)
-	posts.Get("/:id", handlers.BlogPost.GetByID)
-	posts.Get("/slug/:slug", handlers.BlogPost.GetBySlug)
-	posts.Post("/", handlers.BlogPost.Create)
-	posts.Put("/:id", handlers.BlogPost.Update)
-	posts.Patch("/:id", handlers.BlogPost.Patch)
-	posts.Delete("/:id", handlers.BlogPost.Delete)
-	
+	posts := blog.Group("/posts")
+	posts.Get("/search", h.BlogPost.Search)
+	posts.Get("/", h.BlogPost.GetAll)
+	posts.Get("/:id", h.BlogPost.GetByID)
+	posts.Get("/slug/:slug", h.BlogPost.GetBySlug)
+	posts.Post("/", h.BlogPost.Create)
+	posts.Put("/:id", h.BlogPost.Update)
+	posts.Patch("/:id", h.BlogPost.Patch)
+	posts.Delete("/:id", h.BlogPost.Delete)
+
 	// Authors
-	authors := blogManagement.Group("/authors")
-	authors.Get("/", handlers.BlogAuthor.GetAll)
-	authors.Get("/:id", handlers.BlogAuthor.GetByID)
-	authors.Get("/slug/:slug", handlers.BlogAuthor.GetBySlug)
-	authors.Post("/", handlers.BlogAuthor.Create)
-	authors.Put("/:id", handlers.BlogAuthor.Update)
-	authors.Delete("/:id", handlers.BlogAuthor.Delete)
-	
+	authors := blog.Group("/authors")
+	authors.Get("/", h.BlogAuthor.GetAll)
+	authors.Get("/:id", h.BlogAuthor.GetByID)
+	authors.Get("/slug/:slug", h.BlogAuthor.GetBySlug)
+	authors.Post("/", h.BlogAuthor.Create)
+	authors.Put("/:id", h.BlogAuthor.Update)
+	authors.Delete("/:id", h.BlogAuthor.Delete)
+
 	// Categories
-	blogCategories := blogManagement.Group("/categories")
-	blogCategories.Get("/", handlers.BlogCategory.GetAll)
-	blogCategories.Get("/:id", handlers.BlogCategory.GetByID)
-	blogCategories.Get("/slug/:slug", handlers.BlogCategory.GetBySlug)
-	blogCategories.Post("/", handlers.BlogCategory.Create)
-	blogCategories.Put("/:id", handlers.BlogCategory.Update)
-	blogCategories.Delete("/:id", handlers.BlogCategory.Delete)
+	categories := blog.Group("/categories")
+	categories.Get("/", h.BlogCategory.GetAll)
+	categories.Get("/:id", h.BlogCategory.GetByID)
+	categories.Get("/slug/:slug", h.BlogCategory.GetBySlug)
+	categories.Post("/", h.BlogCategory.Create)
+	categories.Put("/:id", h.BlogCategory.Update)
+	categories.Delete("/:id", h.BlogCategory.Delete)
+}
 
-	// ========== NEWSLETTER ==========
-	//newsletter := protected.Group("/newsletter")
-	
-	// Subscribers
-	//subscribers := newsletter.Group("/subscribers")
-	//subscribers.Get("/analytics", handlers.Newsletter.GetSubscriberAnalytics) // Must be before /
-	//subscribers.Get("/", handlers.Newsletter.GetAllSubscribers)
-	//subscribers.Get("/:id", handlers.Newsletter.GetSubscriberByID)
-	//subscribers.Post("/", handlers.Newsletter.AddSubscriber)
-	//subscribers.Post("/export", handlers.Newsletter.ExportSubscribers)
-	//subscribers.Delete("/", handlers.Newsletter.DeleteAllSubscribers)
-	//subscribers.Delete("/:id", handlers.Newsletter.DeleteSubscriber)
-	
-	// Campaigns
-	//campaigns := newsletter.Group("/campaigns")
-	//campaigns.Get("/", handlers.Newsletter.GetAllCampaigns)
-	//campaigns.Get("/:id", handlers.Newsletter.GetCampaignByID)
-	//campaigns.Get("/slug/:slug", handlers.Newsletter.GetCampaignBySlug)
-	//campaigns.Post("/", handlers.Newsletter.CreateCampaign)
-	//campaigns.Put("/:id", handlers.Newsletter.UpdateCampaign)
-	//campaigns.Delete("/:id", handlers.Newsletter.DeleteCampaign)
-	//campaigns.Post("/:id/send", handlers.Newsletter.SendCampaign)
-	//campaigns.Get("/:id/recipients", handlers.Newsletter.GetCampaignRecipients)
+/* ================= ORDERS ================= */
 
-	// ========== CONTACTS ==========
-	contacts := protected.Group("/contacts")
-	contacts.Get("/analytics", handlers.Contact.GetAnalytics)
-	contacts.Get("/", handlers.Contact.GetAll)
-	contacts.Get("/:id", handlers.Contact.GetByID)
-	contacts.Put("/:id", handlers.Contact.Update)
-	contacts.Post("/:id/reply", handlers.Contact.Reply)
-	contacts.Delete("/:id", handlers.Contact.Delete)
+func setupOrderRoutes(protected fiber.Router, h *AdminHandlers) {
+	o := protected.Group("/orders")
 
-	// ========== TESTS ==========
-	tests := protected.Group("/tests")
-	// Questions
-	tests.Get("/questions", handlers.Test.GetAllQuestions)
-	tests.Get("/questions/:id", handlers.Test.GetQuestionByID)
-	tests.Post("/questions", handlers.Test.CreateQuestion)
-	tests.Put("/questions/:id", handlers.Test.UpdateQuestion)
-	tests.Delete("/questions/:id", handlers.Test.DeleteQuestion)
-	// Submissions
-	tests.Get("/submissions", handlers.Test.GetAllSubmissions)
-	tests.Get("/analytics", handlers.Test.GetAnalytics)
-	tests.Post("/export", handlers.Test.Export)
+	o.Get("/", h.Order.GetAllOrders)
+	o.Get("/pending-review", h.Order.GetPendingReviewOrders)
+	o.Get("/:id", h.Order.GetOrderByID)
 
-	// ========== CALCULATORS ==========
-	calculators := protected.Group("/calculators")
-	calculators.Get("/analytics", handlers.Calculator.GetAnalytics)
-	calculators.Get("/results", handlers.Calculator.GetAll)
+	o.Post("/:id/approve", h.Order.ApproveOrder)
+	o.Post("/:id/reject", h.Order.RejectOrder)
+}
 
-	// ========== ADMIN USERS ==========
-	adminUsers := protected.Group("/users")
-	adminUsers.Get("/", handlers.AdminUser.GetAll)
-	adminUsers.Get("/:id", handlers.AdminUser.GetByID)
-	adminUsers.Post("/", handlers.AdminUser.Create)
-	adminUsers.Put("/:id", handlers.AdminUser.Update)
-	adminUsers.Delete("/:id", handlers.AdminUser.Delete)
+/* ================= TEMPLATES ================= */
 
-	// ========== GLOBAL SEARCH ==========
-	protected.Get("/search", handlers.Dashboard.GlobalSearch)
+func setupTemplateRoutes(protected fiber.Router, h *AdminHandlers) {
+	t := protected.Group("/templates")
 
-	// ========== SETTINGS ==========
+	t.Get("/", h.Template.GetAllTemplates)
+	t.Get("/:id", h.Template.GetTemplateByID)
+
+	t.Post("/", h.Template.CreateTemplate)
+	t.Put("/:id", h.Template.UpdateTemplate)
+	t.Patch("/:id", h.Template.PatchTemplate)
+	t.Delete("/:id", h.Template.DeleteTemplate)
+
+	t.Post("/:id/upload-file", h.Template.UploadTemplateFile)
+
+	t.Post("/:id/images", h.Template.AddImage)
+	t.Delete("/images/:id", h.Template.DeleteImage)
+
+	t.Post("/:id/features", h.Template.AddFeature)
+	t.Delete("/features/:id", h.Template.DeleteFeature)
+
+	t.Put("/:id/tags", h.Template.UpdateTags)
+}
+
+/* ================= CATEGORIES ================= */
+
+func setupCategoryRoutes(protected fiber.Router, h *AdminHandlers) {
+	c := protected.Group("/categories")
+
+	c.Get("/", h.Category.GetAllCategories)
+	c.Get("/:id", h.Category.GetCategoryByID)
+	c.Post("/", h.Category.CreateCategory)
+	c.Put("/:id", h.Category.UpdateCategory)
+	c.Delete("/:id", h.Category.DeleteCategory)
+}
+
+/* ================= CONTACTS ================= */
+
+func setupContactRoutes(protected fiber.Router, h *AdminHandlers) {
+	c := protected.Group("/contacts")
+
+	c.Get("/analytics", h.Contact.GetAnalytics)
+	c.Get("/", h.Contact.GetAll)
+	c.Get("/:id", h.Contact.GetByID)
+	c.Put("/:id", h.Contact.Update)
+	c.Post("/:id/reply", h.Contact.Reply)
+	c.Delete("/:id", h.Contact.Delete)
+}
+
+/* ================= ADMIN USERS ================= */
+
+func setupAdminUserRoutes(protected fiber.Router, h *AdminHandlers) {
+	u := protected.Group("/users")
+
+	u.Get("/", h.AdminUser.GetAll)
+	u.Get("/:id", h.AdminUser.GetByID)
+	u.Post("/", h.AdminUser.Create)
+	u.Put("/:id", h.AdminUser.Update)
+	u.Delete("/:id", h.AdminUser.Delete)
+}
+
+/* ================= GLOBAL ================= */
+
+func setupGlobalRoutes(protected fiber.Router, h *AdminHandlers) {
+	protected.Get("/search", h.Dashboard.GlobalSearch)
+
 	settings := protected.Group("/settings")
-	settings.Get("/", handlers.Dashboard.GetSettings)
-	settings.Put("/", handlers.Dashboard.UpdateSettings)
+	settings.Get("/", h.Dashboard.GetSettings)
+	settings.Put("/", h.Dashboard.UpdateSettings)
 }

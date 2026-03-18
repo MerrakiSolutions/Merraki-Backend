@@ -4,36 +4,47 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/merraki/merraki-backend/internal/domain"
 )
 
 type OrderRepository struct {
-	db *Database
+	db *sqlx.DB
 }
 
-func NewOrderRepository(db *Database) *OrderRepository {
+func NewOrderRepository(db *sqlx.DB) *OrderRepository {
 	return &OrderRepository{db: db}
 }
 
 func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error {
 	query := `
-		INSERT INTO orders 
-		(order_number, customer_email, customer_name, customer_phone, 
-		 subtotal_inr, discount_inr, tax_inr, total_inr, currency_code, 
-		 exchange_rate, total_local, payment_method, status, payment_status,
-		 download_token, max_downloads, download_expires_at, ip_address, user_agent)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-		RETURNING id, created_at, updated_at`
+		INSERT INTO orders (
+			order_number, customer_email, customer_name, customer_phone,
+			customer_ip, customer_user_agent, customer_country,
+			billing_name, billing_email, billing_phone,
+			billing_address_line1, billing_address_line2,
+			billing_city, billing_state, billing_country, billing_postal_code,
+			currency, subtotal, tax_amount, discount_amount, total_amount,
+			payment_gateway, status, idempotency_key, metadata
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+			$21, $22, $23, $24, $25
+		) RETURNING id, created_at, updated_at
+	`
 
-	return r.db.DB.QueryRowContext(
+	return r.db.QueryRowContext(
 		ctx, query,
 		order.OrderNumber, order.CustomerEmail, order.CustomerName, order.CustomerPhone,
-		order.SubtotalINR, order.DiscountINR, order.TaxINR, order.TotalINR,
-		order.CurrencyCode, order.ExchangeRate, order.TotalLocal, order.PaymentMethod,
-		order.Status, order.PaymentStatus, order.DownloadToken, order.MaxDownloads,
-		order.DownloadExpiresAt, order.IPAddress, order.UserAgent,
+		order.CustomerIP, order.CustomerUserAgent, order.CustomerCountry,
+		order.BillingName, order.BillingEmail, order.BillingPhone,
+		order.BillingAddressLine1, order.BillingAddressLine2,
+		order.BillingCity, order.BillingState, order.BillingCountry, order.BillingPostalCode,
+		order.Currency, order.Subtotal, order.TaxAmount, order.DiscountAmount, order.TotalAmount,
+		order.PaymentGateway, order.Status, order.IdempotencyKey, order.Metadata,
 	).Scan(&order.ID, &order.CreatedAt, &order.UpdatedAt)
 }
 
@@ -41,11 +52,10 @@ func (r *OrderRepository) FindByID(ctx context.Context, id int64) (*domain.Order
 	var order domain.Order
 	query := `SELECT * FROM orders WHERE id = $1`
 
-	err := r.db.DB.GetContext(ctx, &order, query, id)
+	err := r.db.GetContext(ctx, &order, query, id)
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, domain.ErrNotFound
 	}
-
 	return &order, err
 }
 
@@ -53,347 +63,339 @@ func (r *OrderRepository) FindByOrderNumber(ctx context.Context, orderNumber str
 	var order domain.Order
 	query := `SELECT * FROM orders WHERE order_number = $1`
 
-	err := r.db.DB.GetContext(ctx, &order, query, orderNumber)
+	err := r.db.GetContext(ctx, &order, query, orderNumber)
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, domain.ErrNotFound
 	}
-
 	return &order, err
 }
 
-func (r *OrderRepository) FindByRazorpayOrderID(ctx context.Context, razorpayOrderID string) (*domain.Order, error) {
+func (r *OrderRepository) FindByGatewayOrderID(ctx context.Context, gatewayOrderID string) (*domain.Order, error) {
 	var order domain.Order
-	query := `SELECT * FROM orders WHERE razorpay_order_id = $1`
+	query := `SELECT * FROM orders WHERE gateway_order_id = $1`
 
-	err := r.db.DB.GetContext(ctx, &order, query, razorpayOrderID)
+	err := r.db.GetContext(ctx, &order, query, gatewayOrderID)
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, domain.ErrNotFound
 	}
-
 	return &order, err
 }
 
-func (r *OrderRepository) FindByOrderNumberAndEmail(ctx context.Context, orderNumber, email string) (*domain.Order, error) {
-	var order domain.Order
-	query := `SELECT * FROM orders WHERE order_number = $1 AND customer_email = $2`
+func (r *OrderRepository) FindByEmail(ctx context.Context, email string, limit, offset int) ([]*domain.Order, int, error) {
+	var orders []*domain.Order
+	var total int
 
-	err := r.db.DB.GetContext(ctx, &order, query, orderNumber, email)
-	if err == sql.ErrNoRows {
-		return nil, nil
+	// Count total
+	countQuery := `SELECT COUNT(*) FROM orders WHERE customer_email = $1`
+	err := r.db.GetContext(ctx, &total, countQuery, email)
+	if err != nil {
+		return nil, 0, err
 	}
 
-	return &order, err
-}
-
-func (r *OrderRepository) FindByDownloadToken(ctx context.Context, token string) (*domain.Order, error) {
-	var order domain.Order
-	query := `SELECT * FROM orders WHERE download_token = $1`
-
-	err := r.db.DB.GetContext(ctx, &order, query, token)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-
-	return &order, err
-}
-
-func (r *OrderRepository) Update(ctx context.Context, order *domain.Order) error {
+	// Get data
 	query := `
-		UPDATE orders 
-		SET status = $1, payment_status = $2, razorpay_order_id = $3, 
-		    razorpay_payment_id = $4, razorpay_signature = $5, 
-		    approved_by = $6, approved_at = $7, rejection_reason = $8,
-		    download_count = $9, paid_at = $10, completed_at = $11, updated_at = NOW()
-		WHERE id = $12
-		RETURNING updated_at`
-
-	return r.db.DB.QueryRowContext(
-		ctx, query,
-		order.Status, order.PaymentStatus, order.RazorpayOrderID,
-		order.RazorpayPaymentID, order.RazorpaySignature,
-		order.ApprovedBy, order.ApprovedAt, order.RejectionReason,
-		order.DownloadCount, order.PaidAt, order.CompletedAt, order.ID,
-	).Scan(&order.UpdatedAt)
-}
-
-func (r *OrderRepository) UpdatePaymentSuccess(ctx context.Context, id int64, razorpayPaymentID, razorpaySignature string) error {
-	now := time.Now()
-	query := `
-		UPDATE orders 
-		SET payment_status = 'success', 
-		    status = 'paid',
-		    razorpay_payment_id = $1,
-		    razorpay_signature = $2,
-		    paid_at = $3,
-		    updated_at = NOW()
-		WHERE id = $4`
-
-	_, err := r.db.DB.ExecContext(ctx, query, razorpayPaymentID, razorpaySignature, now, id)
-	return err
-}
-
-func (r *OrderRepository) UpdatePaymentFailed(ctx context.Context, id int64) error {
-	query := `
-		UPDATE orders 
-		SET payment_status = 'failed', 
-		    status = 'failed',
-		    updated_at = NOW()
-		WHERE id = $1`
-
-	_, err := r.db.DB.ExecContext(ctx, query, id)
-	return err
-}
-
-func (r *OrderRepository) ApproveOrder(ctx context.Context, id, adminID int64) error {
-	now := time.Now()
-	query := `
-		UPDATE orders 
-		SET status = 'approved',
-		    approved_by = $1,
-		    approved_at = $2,
-		    updated_at = NOW()
-		WHERE id = $3`
-
-	_, err := r.db.DB.ExecContext(ctx, query, adminID, now, id)
-	return err
-}
-
-func (r *OrderRepository) RejectOrder(ctx context.Context, id, adminID int64, reason string) error {
-	now := time.Now()
-	query := `
-		UPDATE orders 
-		SET status = 'rejected',
-		    rejection_reason = $1,
-		    approved_by = $2,
-		    approved_at = $3,
-		    updated_at = NOW()
-		WHERE id = $4`
-
-	_, err := r.db.DB.ExecContext(ctx, query, reason, adminID, now, id)
-	return err
-}
-
-func (r *OrderRepository) IncrementDownloadCount(ctx context.Context, id int64) error {
-	query := `UPDATE orders SET download_count = download_count + 1, updated_at = NOW() WHERE id = $1`
-	_, err := r.db.DB.ExecContext(ctx, query, id)
-	return err
-}
-
-func (r *OrderRepository) MarkCompleted(ctx context.Context, id int64) error {
-	now := time.Now()
-	query := `
-		UPDATE orders 
-		SET status = 'completed', completed_at = $1, updated_at = NOW()
-		WHERE id = $2`
-
-	_, err := r.db.DB.ExecContext(ctx, query, now, id)
-	return err
+		SELECT * FROM orders 
+		WHERE customer_email = $1 
+		ORDER BY created_at DESC 
+		LIMIT $2 OFFSET $3
+	`
+	err = r.db.SelectContext(ctx, &orders, query, email, limit, offset)
+	return orders, total, err
 }
 
 func (r *OrderRepository) GetAll(ctx context.Context, filters map[string]interface{}, limit, offset int) ([]*domain.Order, int, error) {
 	var orders []*domain.Order
-	
-	query := `SELECT * FROM orders WHERE 1=1`
-	countQuery := `SELECT COUNT(*) FROM orders WHERE 1=1`
+	var total int
+
+	// Build WHERE clause
+	whereClauses := []string{"1=1"}
 	args := []interface{}{}
-	argCount := 1
+	argPos := 1
 
-	if status, ok := filters["status"].(string); ok && status != "" {
-		query += fmt.Sprintf(" AND status = $%d", argCount)
-		countQuery += fmt.Sprintf(" AND status = $%d", argCount)
+	if status, ok := filters["status"].(domain.OrderStatus); ok {
+		whereClauses = append(whereClauses, fmt.Sprintf("status = $%d", argPos))
 		args = append(args, status)
-		argCount++
+		argPos++
 	}
 
-	if paymentStatus, ok := filters["payment_status"].(string); ok && paymentStatus != "" {
-		query += fmt.Sprintf(" AND payment_status = $%d", argCount)
-		countQuery += fmt.Sprintf(" AND payment_status = $%d", argCount)
-		args = append(args, paymentStatus)
-		argCount++
+	if email, ok := filters["email"].(string); ok && email != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("customer_email ILIKE $%d", argPos))
+		args = append(args, "%"+email+"%")
+		argPos++
 	}
 
-	if search, ok := filters["search"].(string); ok && search != "" {
-		query += fmt.Sprintf(" AND (customer_email ILIKE $%d OR order_number ILIKE $%d)", argCount, argCount)
-		countQuery += fmt.Sprintf(" AND (customer_email ILIKE $%d OR order_number ILIKE $%d)", argCount, argCount)
-		args = append(args, "%"+search+"%")
-		argCount++
+	if orderNumber, ok := filters["order_number"].(string); ok && orderNumber != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("order_number ILIKE $%d", argPos))
+		args = append(args, "%"+orderNumber+"%")
+		argPos++
 	}
 
 	if startDate, ok := filters["start_date"].(string); ok && startDate != "" {
-		query += fmt.Sprintf(" AND created_at >= $%d", argCount)
-		countQuery += fmt.Sprintf(" AND created_at >= $%d", argCount)
+		whereClauses = append(whereClauses, fmt.Sprintf("created_at >= $%d", argPos))
 		args = append(args, startDate)
-		argCount++
+		argPos++
 	}
 
 	if endDate, ok := filters["end_date"].(string); ok && endDate != "" {
-		query += fmt.Sprintf(" AND created_at <= $%d", argCount)
-		countQuery += fmt.Sprintf(" AND created_at <= $%d", argCount)
+		whereClauses = append(whereClauses, fmt.Sprintf("created_at <= $%d", argPos))
 		args = append(args, endDate)
-		argCount++
+		argPos++
 	}
 
-	sort := "created_at DESC"
-	if sortParam, ok := filters["sort"].(string); ok {
-		switch sortParam {
-		case "newest":
-			sort = "created_at DESC"
-		case "oldest":
-			sort = "created_at ASC"
-		case "amount_high":
-			sort = "total_inr DESC"
-		case "amount_low":
-			sort = "total_inr ASC"
-		}
-	}
+	whereClause := strings.Join(whereClauses, " AND ")
 
-	query += " ORDER BY " + sort
-	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argCount, argCount+1)
-
-	var total int
-	if err := r.db.DB.GetContext(ctx, &total, countQuery, args...); err != nil {
+	// Count total
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM orders WHERE %s", whereClause)
+	err := r.db.GetContext(ctx, &total, countQuery, args...)
+	if err != nil {
 		return nil, 0, err
 	}
 
+	// Get data
 	args = append(args, limit, offset)
-	if err := r.db.DB.SelectContext(ctx, &orders, query, args...); err != nil {
-		return nil, 0, err
-	}
-
-	return orders, total, nil
-}
-
-func (r *OrderRepository) GetPendingApprovals(ctx context.Context, limit, offset int) ([]*domain.Order, int, error) {
-	var orders []*domain.Order
-	
-	query := `
-		SELECT * FROM orders 
-		WHERE status = 'paid' 
-		ORDER BY paid_at ASC 
-		LIMIT $1 OFFSET $2`
-
-	countQuery := `SELECT COUNT(*) FROM orders WHERE status = 'paid'`
-
-	var total int
-	if err := r.db.DB.GetContext(ctx, &total, countQuery); err != nil {
-		return nil, 0, err
-	}
-
-	if err := r.db.DB.SelectContext(ctx, &orders, query, limit, offset); err != nil {
-		return nil, 0, err
-	}
-
-	return orders, total, nil
-}
-
-// Order Items
-func (r *OrderRepository) CreateOrderItem(ctx context.Context, item *domain.OrderItem) error {
-	query := `
-		INSERT INTO order_items 
-		(order_id, template_id, template_title, template_slug, template_file_url, price_inr)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, created_at`
-
-	return r.db.DB.QueryRowContext(
-		ctx, query,
-		item.OrderID, item.TemplateID, item.TemplateTitle,
-		item.TemplateSlug, item.TemplateFileURL, item.PriceINR,
-	).Scan(&item.ID, &item.CreatedAt)
-}
-
-func (r *OrderRepository) GetOrderItems(ctx context.Context, orderID int64) ([]*domain.OrderItem, error) {
-	var items []*domain.OrderItem
-	query := `SELECT * FROM order_items WHERE order_id = $1`
-
-	err := r.db.DB.SelectContext(ctx, &items, query, orderID)
-	return items, err
-}
-
-// Order Status History
-func (r *OrderRepository) GetStatusHistory(ctx context.Context, orderID int64) ([]*domain.OrderStatusHistory, error) {
-	var history []*domain.OrderStatusHistory
-	query := `
-		SELECT * FROM order_status_history 
-		WHERE order_id = $1 
-		ORDER BY created_at ASC`
-
-	err := r.db.DB.SelectContext(ctx, &history, query, orderID)
-	return history, err
-}
-
-// Download Logs
-func (r *OrderRepository) LogDownload(ctx context.Context, log *domain.DownloadLog) error {
-	query := `
-		INSERT INTO download_logs 
-		(order_id, template_id, template_title, download_type, file_size_bytes, 
-		 ip_address, user_agent, status, error_message)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, downloaded_at`
-
-	return r.db.DB.QueryRowContext(
-		ctx, query,
-		log.OrderID, log.TemplateID, log.TemplateTitle, log.DownloadType,
-		log.FileSizeBytes, log.IPAddress, log.UserAgent, log.Status, log.ErrorMessage,
-	).Scan(&log.ID, &log.DownloadedAt)
-}
-
-func (r *OrderRepository) GetDownloadLogs(ctx context.Context, orderID int64) ([]*domain.DownloadLog, error) {
-	var logs []*domain.DownloadLog
-	query := `
-		SELECT * FROM download_logs 
-		WHERE order_id = $1 
-		ORDER BY downloaded_at DESC`
-
-	err := r.db.DB.SelectContext(ctx, &logs, query, orderID)
-	return logs, err
-}
-
-// Analytics
-func (r *OrderRepository) GetRevenueAnalytics(ctx context.Context, startDate, endDate string, groupBy string) ([]map[string]interface{}, error) {
-	var results []map[string]interface{}
-	
-	dateFormat := "DATE(created_at)"
-	if groupBy == "month" {
-		dateFormat = "DATE_TRUNC('month', created_at)"
-	} else if groupBy == "week" {
-		dateFormat = "DATE_TRUNC('week', created_at)"
-	}
-
 	query := fmt.Sprintf(`
-		SELECT 
-			%s as period,
-			COUNT(*) as orders_count,
-			SUM(total_inr) as revenue_inr,
-			AVG(total_inr) as avg_order_value_inr
-		FROM orders
-		WHERE status = 'completed'
-		  AND created_at >= $1
-		  AND created_at <= $2
-		GROUP BY period
-		ORDER BY period ASC`, dateFormat)
+		SELECT * FROM orders 
+		WHERE %s 
+		ORDER BY created_at DESC 
+		LIMIT $%d OFFSET $%d
+	`, whereClause, argPos, argPos+1)
 
-	rows, err := r.db.DB.QueryContext(ctx, query, startDate, endDate)
+	err = r.db.SelectContext(ctx, &orders, query, args...)
+	return orders, total, err
+}
+
+func (r *OrderRepository) GetWithItems(ctx context.Context, id int64) (*domain.OrderWithItems, error) {
+	order, err := r.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		var period time.Time
-		var ordersCount int
-		var revenueINR, avgOrderValue int64
-
-		if err := rows.Scan(&period, &ordersCount, &revenueINR, &avgOrderValue); err != nil {
-			return nil, err
-		}
-
-		results = append(results, map[string]interface{}{
-			"period":              period,
-			"orders_count":        ordersCount,
-			"revenue_inr":         revenueINR,
-			"avg_order_value_inr": avgOrderValue,
-		})
+	var items []*domain.OrderItem
+	query := `SELECT * FROM order_items WHERE order_id = $1 ORDER BY id`
+	err = r.db.SelectContext(ctx, &items, query, id)
+	if err != nil {
+		return nil, err
 	}
 
-	return results, nil
+	// Convert []*OrderItem to []OrderItem
+	itemsSlice := make([]domain.OrderItem, len(items))
+	for i, item := range items {
+		itemsSlice[i] = *item
+	}
+
+	return &domain.OrderWithItems{
+		Order: *order,
+		Items: itemsSlice,
+	}, nil
+}
+
+func (r *OrderRepository) Update(ctx context.Context, order *domain.Order) error {
+	query := `
+		UPDATE orders SET
+			customer_email = $1, customer_name = $2, customer_phone = $3,
+			billing_name = $4, billing_email = $5, billing_phone = $6,
+			billing_address_line1 = $7, billing_address_line2 = $8,
+			billing_city = $9, billing_state = $10, billing_country = $11, billing_postal_code = $12,
+			currency = $13, subtotal = $14, tax_amount = $15, discount_amount = $16, total_amount = $17,
+			gateway_order_id = $18, gateway_payment_id = $19, gateway_signature = $20,
+			status = $21, previous_status = $22, status_updated_at = $23,
+			admin_reviewed_by = $24, admin_reviewed_at = $25, admin_notes = $26, rejection_reason = $27,
+			downloads_enabled = $28, downloads_expires_at = $29,
+			paid_at = $30, approved_at = $31, rejected_at = $32, cancelled_at = $33, refunded_at = $34,
+			metadata = $35
+		WHERE id = $36
+	`
+
+	_, err := r.db.ExecContext(
+		ctx, query,
+		order.CustomerEmail, order.CustomerName, order.CustomerPhone,
+		order.BillingName, order.BillingEmail, order.BillingPhone,
+		order.BillingAddressLine1, order.BillingAddressLine2,
+		order.BillingCity, order.BillingState, order.BillingCountry, order.BillingPostalCode,
+		order.Currency, order.Subtotal, order.TaxAmount, order.DiscountAmount, order.TotalAmount,
+		order.GatewayOrderID, order.GatewayPaymentID, order.GatewaySignature,
+		order.Status, order.PreviousStatus, order.StatusUpdatedAt,
+		order.AdminReviewedBy, order.AdminReviewedAt, order.AdminNotes, order.RejectionReason,
+		order.DownloadsEnabled, order.DownloadsExpiresAt,
+		order.PaidAt, order.ApprovedAt, order.RejectedAt, order.CancelledAt, order.RefundedAt,
+		order.Metadata,
+		order.ID,
+	)
+	return err
+}
+
+func (r *OrderRepository) UpdateStatus(ctx context.Context, id int64, newStatus domain.OrderStatus, adminID *int64) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Get current order
+	var order domain.Order
+	err = tx.GetContext(ctx, &order, "SELECT * FROM orders WHERE id = $1 FOR UPDATE", id)
+	if err != nil {
+		return err
+	}
+
+	// Validate transition
+	if !order.CanTransitionTo(newStatus) {
+		return domain.ErrInvalidStateTransition
+	}
+
+	// Update status
+	now := time.Now()
+	query := `
+		UPDATE orders 
+		SET status = $1, previous_status = $2, status_updated_at = $3
+		WHERE id = $4
+	`
+	_, err = tx.ExecContext(ctx, query, newStatus, order.Status, now, id)
+	if err != nil {
+		return err
+	}
+
+	// Record transition
+	transQuery := `
+		INSERT INTO order_state_transitions (order_id, from_status, to_status, triggered_by, admin_id)
+		VALUES ($1, $2, $3, $4, $5)
+	`
+	triggeredBy := "system"
+	if adminID != nil {
+		triggeredBy = "admin"
+	}
+	_, err = tx.ExecContext(ctx, transQuery, id, order.Status, newStatus, triggeredBy, adminID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *OrderRepository) Approve(ctx context.Context, id int64, adminID int64, notes *string) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+	expiresAt := now.AddDate(0, 0, 30) // 30 days download access
+
+	query := `
+		UPDATE orders SET
+			status = $1,
+			previous_status = status,
+			status_updated_at = $2,
+			admin_reviewed_by = $3,
+			admin_reviewed_at = $4,
+			admin_notes = $5,
+			approved_at = $6,
+			downloads_enabled = true,
+			downloads_expires_at = $7
+		WHERE id = $8 AND status IN ('paid', 'admin_review')
+	`
+
+	result, err := tx.ExecContext(ctx, query,
+		domain.OrderStatusApproved, now, adminID, now, notes, now, expiresAt, id,
+	)
+	if err != nil {
+		return err
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return domain.ErrInvalidStateTransition
+	}
+
+	// Record transition
+	transQuery := `
+		INSERT INTO order_state_transitions (order_id, to_status, triggered_by, admin_id, reason)
+		VALUES ($1, $2, 'admin', $3, 'Order approved')
+	`
+	_, err = tx.ExecContext(ctx, transQuery, id, domain.OrderStatusApproved, adminID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *OrderRepository) Reject(ctx context.Context, id int64, adminID int64, reason string) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+
+	query := `
+		UPDATE orders SET
+			status = $1,
+			previous_status = status,
+			status_updated_at = $2,
+			admin_reviewed_by = $3,
+			admin_reviewed_at = $4,
+			rejection_reason = $5,
+			rejected_at = $6
+		WHERE id = $7 AND status IN ('paid', 'admin_review')
+	`
+
+	result, err := tx.ExecContext(ctx, query,
+		domain.OrderStatusRejected, now, adminID, now, reason, now, id,
+	)
+	if err != nil {
+		return err
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return domain.ErrInvalidStateTransition
+	}
+
+	// Record transition
+	transQuery := `
+		INSERT INTO order_state_transitions (order_id, to_status, triggered_by, admin_id, reason)
+		VALUES ($1, $2, 'admin', $3, $4)
+	`
+	_, err = tx.ExecContext(ctx, transQuery, id, domain.OrderStatusRejected, adminID, reason)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *OrderRepository) GetRevenueByDateRange(ctx context.Context, startDate, endDate string) (float64, error) {
+	var revenue float64
+	query := `
+		SELECT COALESCE(SUM(total_amount), 0) 
+		FROM orders 
+		WHERE status IN ('approved', 'paid') 
+		AND created_at >= $1 AND created_at <= $2
+	`
+	err := r.db.GetContext(ctx, &revenue, query, startDate, endDate)
+	return revenue, err
+}
+
+func (r *OrderRepository) GetOrderCountByStatus(ctx context.Context) (map[domain.OrderStatus]int, error) {
+	type StatusCount struct {
+		Status domain.OrderStatus `db:"status"`
+		Count  int                `db:"count"`
+	}
+
+	var counts []StatusCount
+	query := `SELECT status, COUNT(*) as count FROM orders GROUP BY status`
+	err := r.db.SelectContext(ctx, &counts, query)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[domain.OrderStatus]int)
+	for _, sc := range counts {
+		result[sc.Status] = sc.Count
+	}
+
+	return result, nil
 }

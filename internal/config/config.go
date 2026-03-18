@@ -27,6 +27,7 @@ type ServerConfig struct {
 	WorkerPort  int
 	Environment string
 	APIVersion  string
+	
 }
 
 type DatabaseConfig struct {
@@ -75,6 +76,7 @@ type PaymentConfig struct {
 	RazorpayKeyID         string
 	RazorpayKeySecret     string
 	RazorpayWebhookSecret string
+	Razorpay              RazorpayConfig `mapstructure:"razorpay"`
 }
 
 type EmailConfig struct {
@@ -86,6 +88,13 @@ type EmailConfig struct {
 	SMTPPassword string
 	FromEmail    string
 	FromName     string
+}
+
+type RazorpayConfig struct {
+	KeyID         string `mapstructure:"key_id"`
+	KeySecret     string `mapstructure:"key_secret"`
+	WebhookSecret string `mapstructure:"webhook_secret"`
+	BaseURL       string `mapstructure:"base_url"`
 }
 
 type ExternalConfig struct {
@@ -116,7 +125,6 @@ type LoggingConfig struct {
 	Format string
 	Output string
 }
-
 
 func Load() (*Config, error) {
 	viper.SetConfigFile(".env")

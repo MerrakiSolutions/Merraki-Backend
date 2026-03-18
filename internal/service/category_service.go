@@ -5,154 +5,162 @@ import (
 
 	"github.com/gosimple/slug"
 	"github.com/merraki/merraki-backend/internal/domain"
-	apperrors "github.com/merraki/merraki-backend/internal/pkg/errors"
-	"github.com/merraki/merraki-backend/internal/repository/postgres"
-	"github.com/valyala/fasthttp"
+	"github.com/merraki/merraki-backend/internal/pkg/logger"
+	"github.com/merraki/merraki-backend/internal/repository"
+	"go.uber.org/zap"
 )
 
 type CategoryService struct {
-	categoryRepo *postgres.CategoryRepository
-	logRepo      *postgres.ActivityLogRepository
-}
-
-func (s *CategoryService) GetTemplateCategoryBySlug(ctx *fasthttp.RequestCtx, categorySlug string) (any, any) {
-	panic("unimplemented")
+	categoryRepo    repository.CategoryRepository
+	activityLogRepo repository.ActivityLogRepository
 }
 
 func NewCategoryService(
-	categoryRepo *postgres.CategoryRepository,
-	logRepo *postgres.ActivityLogRepository,
+	categoryRepo repository.CategoryRepository,
+	activityLogRepo repository.ActivityLogRepository,
 ) *CategoryService {
 	return &CategoryService{
-		categoryRepo: categoryRepo,
-		logRepo:      logRepo,
+		categoryRepo:    categoryRepo,
+		activityLogRepo: activityLogRepo,
 	}
 }
 
-// Template Categories
-func (s *CategoryService) CreateTemplateCategory(ctx context.Context, category *domain.TemplateCategory, createdBy int64) error {
+func (s *CategoryService) CreateCategory(ctx context.Context, category *domain.Category, createdBy int64) error {
+	// Generate slug if not provided
 	if category.Slug == "" {
 		category.Slug = slug.Make(category.Name)
 	}
 
 	// Check if slug exists
-	existing, err := s.categoryRepo.GetTemplateCategoryBySlug(ctx, category.Slug)
-	if err != nil {
-		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to check slug", 500)
+	existing, err := s.categoryRepo.FindBySlug(ctx, category.Slug)
+	if err != nil && err != domain.ErrNotFound {
+		return err
 	}
-
 	if existing != nil {
-		return apperrors.New("SLUG_EXISTS", "Category with this slug already exists", 409)
+		return domain.ErrDuplicateEntry
 	}
 
-	if err := s.categoryRepo.CreateTemplateCategory(ctx, category); err != nil {
-		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to create category", 500)
+	// Create category
+	if err := s.categoryRepo.Create(ctx, category); err != nil {
+		return err
 	}
 
-	_ = s.logRepo.Create(ctx, &domain.ActivityLog{
-		AdminID:    &createdBy,
-		Action:     "create_template_category",
-		EntityType: strPtr("template_category"),
-		EntityID:   &category.ID,
-		Details:    domain.JSONMap{"name": category.Name},
+	// Log activity
+	s.logActivity(ctx, "create_category", category.ID, createdBy, map[string]interface{}{
+		"name": category.Name,
+		"slug": category.Slug,
 	})
+
+	logger.Info("Category created",
+		zap.Int64("id", category.ID),
+		zap.String("name", category.Name),
+	)
 
 	return nil
 }
 
-func (s *CategoryService) GetTemplateCategories(ctx context.Context, activeOnly bool) ([]*domain.TemplateCategory, error) {
-	return s.categoryRepo.GetTemplateCategories(ctx, activeOnly)
+func (s *CategoryService) GetCategoryByID(ctx context.Context, id int64) (*domain.Category, error) {
+	return s.categoryRepo.FindByID(ctx, id)
 }
 
-func (s *CategoryService) GetTemplateCategoryByID(ctx context.Context, id int64) (*domain.TemplateCategory, error) {
-	category, err := s.categoryRepo.GetTemplateCategoryByID(ctx, id)
-	if err != nil {
-		return nil, apperrors.Wrap(err, "DATABASE_ERROR", "Failed to find category", 500)
-	}
-
-	if category == nil {
-		return nil, apperrors.ErrNotFound
-	}
-
-	return category, nil
+func (s *CategoryService) GetCategoryBySlug(ctx context.Context, slug string) (*domain.Category, error) {
+	return s.categoryRepo.FindBySlug(ctx, slug)
 }
 
-func (s *CategoryService) UpdateTemplateCategory(ctx context.Context, category *domain.TemplateCategory, updatedBy int64) error {
-	existing, err := s.categoryRepo.GetTemplateCategoryByID(ctx, category.ID)
-	if err != nil {
-		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to find category", 500)
-	}
+func (s *CategoryService) GetAllCategories(ctx context.Context, activeOnly bool) ([]*domain.Category, error) {
+	return s.categoryRepo.GetAll(ctx, activeOnly)
+}
 
+func (s *CategoryService) UpdateCategory(ctx context.Context, category *domain.Category, updatedBy int64) error {
+	// Check if exists
+	existing, err := s.categoryRepo.FindByID(ctx, category.ID)
+	if err != nil {
+		return err
+	}
 	if existing == nil {
-		return apperrors.ErrNotFound
+		return domain.ErrNotFound
 	}
 
-	if err := s.categoryRepo.UpdateTemplateCategory(ctx, category); err != nil {
-		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to update category", 500)
+	// Check slug uniqueness if changed
+	if category.Slug != existing.Slug {
+		slugExists, err := s.categoryRepo.FindBySlug(ctx, category.Slug)
+		if err != nil && err != domain.ErrNotFound {
+			return err
+		}
+		if slugExists != nil && slugExists.ID != category.ID {
+			return domain.ErrDuplicateEntry
+		}
 	}
 
-	_ = s.logRepo.Create(ctx, &domain.ActivityLog{
-		AdminID:    &updatedBy,
-		Action:     "update_template_category",
-		EntityType: strPtr("template_category"),
-		EntityID:   &category.ID,
-		Details:    domain.JSONMap{"name": category.Name},
+	// Update
+	if err := s.categoryRepo.Update(ctx, category); err != nil {
+		return err
+	}
+
+	// Log activity
+	s.logActivity(ctx, "update_category", category.ID, updatedBy, map[string]interface{}{
+		"name": category.Name,
 	})
+
+	logger.Info("Category updated",
+		zap.Int64("id", category.ID),
+		zap.String("name", category.Name),
+	)
 
 	return nil
 }
 
-func (s *CategoryService) DeleteTemplateCategory(ctx context.Context, id, deletedBy int64) error {
-	category, err := s.categoryRepo.GetTemplateCategoryByID(ctx, id)
+func (s *CategoryService) DeleteCategory(ctx context.Context, id int64, deletedBy int64) error {
+	// Check if exists
+	category, err := s.categoryRepo.FindByID(ctx, id)
 	if err != nil {
-		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to find category", 500)
+		return err
 	}
-
 	if category == nil {
-		return apperrors.ErrNotFound
+		return domain.ErrNotFound
 	}
 
-	// Check if category has templates
-	if category.TemplatesCount > 0 {
-		return apperrors.New("CATEGORY_HAS_TEMPLATES", "Cannot delete category with templates", 400)
+	// Delete
+	if err := s.categoryRepo.Delete(ctx, id); err != nil {
+		return err
 	}
 
-	if err := s.categoryRepo.DeleteTemplateCategory(ctx, id); err != nil {
-		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to delete category", 500)
-	}
-
-	_ = s.logRepo.Create(ctx, &domain.ActivityLog{
-		AdminID:    &deletedBy,
-		Action:     "delete_template_category",
-		EntityType: strPtr("template_category"),
-		EntityID:   &id,
-		Details:    domain.JSONMap{"name": category.Name},
+	// Log activity
+	s.logActivity(ctx, "delete_category", id, deletedBy, map[string]interface{}{
+		"name": category.Name,
 	})
 
-	return nil
-}
-
-// Blog Categories (similar pattern)
-func (s *CategoryService) CreateBlogCategory(ctx context.Context, category *domain.BlogCategory, createdBy int64) error {
-	if category.Slug == "" {
-		category.Slug = slug.Make(category.Name)
-	}
-
-	if err := s.categoryRepo.CreateBlogCategory(ctx, category); err != nil {
-		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to create category", 500)
-	}
+	logger.Info("Category deleted",
+		zap.Int64("id", id),
+		zap.String("name", category.Name),
+	)
 
 	return nil
 }
 
-func (s *CategoryService) GetBlogCategories(ctx context.Context, activeOnly bool) ([]*domain.BlogCategory, error) {
-	return s.categoryRepo.GetBlogCategories(ctx, activeOnly)
-}
+func (s *CategoryService) logActivity(ctx context.Context, action string, entityID int64, adminID int64, metadata map[string]interface{}) {
+	if s.activityLogRepo == nil {
+		return
+	}
 
-func (s *CategoryService) UpdateBlogCategory(ctx context.Context, category *domain.BlogCategory) error {
-	return s.categoryRepo.UpdateBlogCategory(ctx, category)
-}
+	jsonMetadata := make(domain.JSONMap)
+	for k, v := range metadata {
+		jsonMetadata[k] = v
+	}
 
-func (s *CategoryService) DeleteBlogCategory(ctx context.Context, id int64) error {
-	return s.categoryRepo.DeleteBlogCategory(ctx, id)
+	entityType := "category"
+	var adminIDPtr *int64
+	if adminID > 0 {
+		adminIDPtr = &adminID
+	}
+
+	activity := &domain.ActivityLog{
+		Action:     action,
+		EntityType: &entityType,
+		EntityID:   &entityID,
+		AdminID:    adminIDPtr,
+		Details:    jsonMetadata,
+	}
+
+	_ = s.activityLogRepo.Create(ctx, activity)
 }
