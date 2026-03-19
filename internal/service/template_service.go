@@ -37,8 +37,9 @@ func (s *TemplateService) CreateTemplate(ctx context.Context, template *domain.T
 	}
 
 	// Check if slug exists
+	// Check if slug exists
 	existing, err := s.templateRepo.FindBySlug(ctx, template.Slug)
-	if err != nil && err != sql.ErrNoRows {
+	if err != nil && err != sql.ErrNoRows && err != apperrors.ErrNotFound {
 		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to check slug", 500)
 	}
 	if existing != nil {
@@ -157,7 +158,7 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, template *domain.T
 	// Check slug uniqueness if changed
 	if template.Slug != existing.Slug {
 		slugExists, err := s.templateRepo.FindBySlug(ctx, template.Slug)
-		if err != nil && err != sql.ErrNoRows {
+		if err != nil && err != sql.ErrNoRows && err != apperrors.ErrNotFound {
 			return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to check slug", 500)
 		}
 		if slugExists != nil && slugExists.ID != template.ID {
