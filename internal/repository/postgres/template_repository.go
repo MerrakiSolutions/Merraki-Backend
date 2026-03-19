@@ -54,7 +54,7 @@ func (r *TemplateRepository) FindByID(ctx context.Context, id int64) (*domain.Te
 
 	err := r.db.GetContext(ctx, &template, query, id)
 	if err == sql.ErrNoRows {
-		return nil, domain.ErrNotFound
+		return nil, nil
 	}
 	return &template, err
 }
@@ -65,7 +65,7 @@ func (r *TemplateRepository) FindBySlug(ctx context.Context, slug string) (*doma
 
 	err := r.db.GetContext(ctx, &template, query, slug)
 	if err == sql.ErrNoRows {
-		return nil, domain.ErrNotFound
+		return nil, nil
 	}
 	return &template, err
 }
@@ -192,7 +192,7 @@ func (r *TemplateRepository) FindByName(ctx context.Context, name string) (*doma
 
 	err := r.db.GetContext(ctx, &template, query, name)
 	if err == sql.ErrNoRows {
-		return nil, domain.ErrNotFound
+		return nil, nil
 	}
 	return &template, err
 }

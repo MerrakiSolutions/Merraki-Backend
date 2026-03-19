@@ -37,9 +37,8 @@ func (s *TemplateService) CreateTemplate(ctx context.Context, template *domain.T
 	}
 
 	// Check if slug exists
-	// Check if slug exists
 	existing, err := s.templateRepo.FindBySlug(ctx, template.Slug)
-	if err != nil && err != sql.ErrNoRows && err != apperrors.ErrNotFound {
+	if err != nil {
 		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to check slug", 500)
 	}
 	if existing != nil {
@@ -49,7 +48,10 @@ func (s *TemplateService) CreateTemplate(ctx context.Context, template *domain.T
 	// Verify category exists
 	if template.CategoryID != nil {
 		category, err := s.categoryRepo.FindByID(ctx, *template.CategoryID)
-		if err != nil && err != sql.ErrNoRows {
+		if err != nil {
+			if err == domain.ErrNotFound {
+				return apperrors.New("CATEGORY_NOT_FOUND", "Category not found", 404)
+			}
 			return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to verify category", 500)
 		}
 		if category == nil {
@@ -158,7 +160,7 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, template *domain.T
 	// Check slug uniqueness if changed
 	if template.Slug != existing.Slug {
 		slugExists, err := s.templateRepo.FindBySlug(ctx, template.Slug)
-		if err != nil && err != sql.ErrNoRows && err != apperrors.ErrNotFound {
+		if err != nil {
 			return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to check slug", 500)
 		}
 		if slugExists != nil && slugExists.ID != template.ID {
@@ -169,7 +171,10 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, template *domain.T
 	// Verify category if provided
 	if template.CategoryID != nil {
 		category, err := s.categoryRepo.FindByID(ctx, *template.CategoryID)
-		if err != nil && err != sql.ErrNoRows {
+		if err != nil {
+			if err == domain.ErrNotFound {
+				return apperrors.New("CATEGORY_NOT_FOUND", "Category not found", 404)
+			}
 			return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to verify category", 500)
 		}
 		if category == nil {
