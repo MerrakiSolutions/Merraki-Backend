@@ -368,6 +368,42 @@ func (w *JobProcessor) handleProcessWebhook(ctx context.Context, job *domain.Bac
 	}
 }
 
+func (w *JobProcessor) handleSendOrderReceivedEmail(ctx context.Context, job *domain.BackgroundJob) error {
+	orderID, err := w.getInt64FromPayload(job.Payload, "order_id")
+	if err != nil {
+		return err
+	}
+ 
+	// Get order
+	order, err := w.orderRepo.FindByID(ctx, orderID)
+	if err != nil {
+		return fmt.Errorf("failed to get order: %w", err)
+	}
+ 
+	// Get order items
+	items, err := w.orderItemRepo.GetByOrderID(ctx, orderID)
+	if err != nil {
+		return fmt.Errorf("failed to get order items: %w", err)
+	}
+ 
+	// Generate receipt PDF
+	var pdfBytes []byte
+	if w.pdfService != nil {
+		pdfBytes, err = w.pdfService.GenerateOrderInvoice(ctx, order, items)
+		if err != nil {
+			// Log but don't fail — send email without PDF
+			logger.Warn("Failed to generate receipt PDF, sending email without attachment",
+				zap.Int64("order_id", orderID),
+				zap.Error(err),
+			)
+			pdfBytes = nil
+		}
+	}
+ 
+	// Send email to customer with order details + PDF receipt
+	return w.emailService.SendOrderReceived(ctx, order, items, pdfBytes)
+}
+
 func (w *JobProcessor) handlePaymentCapturedWebhook(ctx context.Context, webhook *domain.PaymentWebhook, data map[string]interface{}) error {
 	// Extract payment ID
 	paymentID := webhook.GatewayPaymentID

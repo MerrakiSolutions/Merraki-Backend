@@ -425,7 +425,13 @@ func (s *OrderService) VerifyPayment(ctx context.Context, req *VerifyPaymentRequ
 	}
 
 	// 9. Enqueue background jobs
-	// Always notify admin for review — admin approves → triggers confirmation email + download tokens
+
+	// Job 1: Email customer — "We received your order, it's under review" + receipt PDF
+	_ = s.enqueueJob(ctx, "send_order_received_email", map[string]interface{}{
+		"order_id": order.ID,
+	})
+
+	// Job 2: Email admin — "New order awaiting your review"
 	_ = s.enqueueJob(ctx, "send_admin_review_notification", map[string]interface{}{
 		"order_id":     order.ID,
 		"order_number": order.OrderNumber,
