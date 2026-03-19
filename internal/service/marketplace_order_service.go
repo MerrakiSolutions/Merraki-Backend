@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/merraki/merraki-backend/internal/domain"
@@ -16,16 +18,16 @@ import (
 // ============================================================================
 
 type OrderService struct {
-	orderRepo           repository.OrderRepository
-	orderItemRepo       repository.OrderItemRepository
-	templateRepo        repository.TemplateRepository
-	paymentRepo         repository.PaymentRepository
-	idempotencyRepo     repository.IdempotencyKeyRepository
-	transitionRepo      repository.OrderStateTransitionRepository
-	activityLogRepo     repository.ActivityLogRepository
-	paymentService      *PaymentService
-	emailService        *EmailService
-	jobRepo             repository.BackgroundJobRepository
+	orderRepo       repository.OrderRepository
+	orderItemRepo   repository.OrderItemRepository
+	templateRepo    repository.TemplateRepository
+	paymentRepo     repository.PaymentRepository
+	idempotencyRepo repository.IdempotencyKeyRepository
+	transitionRepo  repository.OrderStateTransitionRepository
+	activityLogRepo repository.ActivityLogRepository
+	paymentService  *PaymentService
+	emailService    *EmailService
+	jobRepo         repository.BackgroundJobRepository
 }
 
 func NewOrderService(
@@ -59,15 +61,15 @@ func NewOrderService(
 // ============================================================================
 
 type CreateOrderRequest struct {
-	CustomerEmail    string                  `json:"customer_email" validate:"required,email"`
-	CustomerName     string                  `json:"customer_name" validate:"required"`
-	CustomerPhone    string                  `json:"customer_phone"`
-	BillingAddress   *domain.BillingAddress  `json:"billing_address"`
-	Items            []CreateOrderItem       `json:"items" validate:"required,min=1,dive"`
-	Currency         string                  `json:"currency" validate:"required,oneof=INR USD"`
-	IdempotencyKey   string                  `json:"idempotency_key" validate:"required"`
-	CustomerIP       string                  `json:"-"` // From request context
-	CustomerUserAgent string                 `json:"-"` // From request context
+	CustomerEmail     string                 `json:"customer_email" validate:"required,email"`
+	CustomerName      string                 `json:"customer_name" validate:"required"`
+	CustomerPhone     string                 `json:"customer_phone"`
+	BillingAddress    *domain.BillingAddress `json:"billing_address"`
+	Items             []CreateOrderItem      `json:"items" validate:"required,min=1,dive"`
+	Currency          string                 `json:"currency" validate:"required,oneof=INR USD"`
+	IdempotencyKey    string                 `json:"idempotency_key"` // FIX: removed validate:"required" — frontend may not send it
+	CustomerIP        string                 `json:"-"`
+	CustomerUserAgent string                 `json:"-"`
 }
 
 type CreateOrderItem struct {
@@ -76,16 +78,16 @@ type CreateOrderItem struct {
 }
 
 func (s *OrderService) CreateOrder(ctx context.Context, req *CreateOrderRequest) (*domain.Order, error) {
-	// 1. Check idempotency
-	existingKey, err := s.idempotencyRepo.FindByKey(ctx, req.IdempotencyKey)
-	if err == nil {
-		// Idempotency key exists - return cached response
-		logger.Info("Idempotent request detected", zap.String("key", req.IdempotencyKey))
-		
-		if existingKey.EntityID != nil {
-			order, err := s.orderRepo.FindByID(ctx, *existingKey.EntityID)
-			if err == nil {
-				return order, nil
+	// 1. Check idempotency — ONLY if key is non-empty
+	if req.IdempotencyKey != "" {
+		existingKey, err := s.idempotencyRepo.FindByKey(ctx, req.IdempotencyKey)
+		if err == nil && existingKey != nil {
+			logger.Info("Idempotent create_order request detected", zap.String("key", req.IdempotencyKey))
+			if existingKey.EntityID != nil {
+				order, err := s.orderRepo.FindByID(ctx, *existingKey.EntityID)
+				if err == nil && order != nil {
+					return order, nil
+				}
 			}
 		}
 	}
@@ -99,13 +101,14 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *CreateOrderRequest)
 		if err != nil {
 			return nil, fmt.Errorf("template %d not found", item.TemplateID)
 		}
+		if template == nil {
+			return nil, fmt.Errorf("template %d not found", item.TemplateID)
+		}
 
-		// Check availability
 		if !template.IsInStock() {
 			return nil, domain.ErrInsufficientStock
 		}
 
-		// Get current price (SERVER DECIDES PRICE - NEVER TRUST CLIENT)
 		unitPrice := template.GetCurrentPrice(req.Currency)
 		itemSubtotal := unitPrice * float64(item.Quantity)
 
@@ -127,7 +130,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *CreateOrderRequest)
 	}
 
 	// 3. Calculate totals
-	taxAmount := 0.0 // TODO: Implement tax calculation based on billing address
+	taxAmount := 0.0
 	discountAmount := 0.0
 	totalAmount := subtotal + taxAmount - discountAmount
 
@@ -136,21 +139,25 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *CreateOrderRequest)
 
 	// 5. Create order
 	order := &domain.Order{
-		OrderNumber:   orderNumber,
-		CustomerEmail: req.CustomerEmail,
-		CustomerName:  req.CustomerName,
-		CustomerPhone: &req.CustomerPhone,
-		CustomerIP:    &req.CustomerIP,
+		OrderNumber:       orderNumber,
+		CustomerEmail:     req.CustomerEmail,
+		CustomerName:      req.CustomerName,
+		CustomerPhone:     &req.CustomerPhone,
+		CustomerIP:        &req.CustomerIP,
 		CustomerUserAgent: &req.CustomerUserAgent,
-		Currency:      req.Currency,
-		Subtotal:      subtotal,
-		TaxAmount:     taxAmount,
-		DiscountAmount: discountAmount,
-		TotalAmount:   totalAmount,
-		PaymentGateway: "razorpay",
-		Status:        domain.OrderStatusPending,
-		IdempotencyKey: &req.IdempotencyKey,
-		Metadata:      make(domain.JSONMap),
+		Currency:          req.Currency,
+		Subtotal:          subtotal,
+		TaxAmount:         taxAmount,
+		DiscountAmount:    discountAmount,
+		TotalAmount:       totalAmount,
+		PaymentGateway:    "razorpay",
+		Status:            domain.OrderStatusPending,
+		Metadata:          make(domain.JSONMap),
+	}
+
+	// FIX: only set IdempotencyKey on order if non-empty
+	if req.IdempotencyKey != "" {
+		order.IdempotencyKey = &req.IdempotencyKey
 	}
 
 	// Add billing address if provided
@@ -179,27 +186,28 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *CreateOrderRequest)
 		return nil, err
 	}
 
-	// 8. Reserve stock
+	// 8. Reserve stock (best-effort)
 	for _, item := range orderItems {
 		if err := s.templateRepo.DecrementStock(ctx, item.TemplateID, item.Quantity); err != nil {
-			logger.Error("Failed to reserve stock", 
+			logger.Error("Failed to reserve stock",
 				zap.Int64("template_id", item.TemplateID),
 				zap.Error(err),
 			)
-			// Continue - stock reservation is best-effort
 		}
 	}
 
-	// 9. Save idempotency key
-	expiresAt := time.Now().Add(24 * time.Hour)
-	idempotencyKey := &domain.IdempotencyKey{
-		Key:           req.IdempotencyKey,
-		OperationType: "create_order",
-		EntityType:    strPtr("order"),
-		EntityID:      &order.ID,
-		ExpiresAt:     expiresAt,
+	// 9. Save idempotency key — ONLY if non-empty
+	if req.IdempotencyKey != "" {
+		expiresAt := time.Now().Add(24 * time.Hour)
+		idempotencyKey := &domain.IdempotencyKey{
+			Key:           req.IdempotencyKey,
+			OperationType: "create_order",
+			EntityType:    strPtr("order"),
+			EntityID:      &order.ID,
+			ExpiresAt:     expiresAt,
+		}
+		_ = s.idempotencyRepo.Create(ctx, idempotencyKey)
 	}
-	_ = s.idempotencyRepo.Create(ctx, idempotencyKey)
 
 	// 10. Log activity
 	s.logActivity(ctx, "order_created", order.ID, 0, map[string]interface{}{
@@ -227,20 +235,37 @@ func (s *OrderService) InitiatePayment(ctx context.Context, orderID int64) (*dom
 	if err != nil {
 		return nil, err
 	}
-
-	// 2. Validate state
-	if order.Status != domain.OrderStatusPending {
-		return nil, fmt.Errorf("order must be in pending state, current: %s", order.Status)
+	if order == nil {
+		return nil, domain.ErrNotFound
 	}
 
-	// 3. Create Razorpay order
+	// 2. Validate state — allow re-initiation if already payment_initiated
+	// (handles page refresh between create-order and Razorpay open)
+	if order.Status != domain.OrderStatusPending &&
+		order.Status != domain.OrderStatusPaymentInitiated {
+		return nil, fmt.Errorf("order cannot initiate payment in state: %s", order.Status)
+	}
+
+	// 3. If already payment_initiated, return existing payment record
+	if order.Status == domain.OrderStatusPaymentInitiated && order.GatewayOrderID != nil {
+		payment, err := s.paymentRepo.FindByGatewayOrderID(ctx, *order.GatewayOrderID)
+		if err == nil && payment != nil {
+			logger.Info("Re-using existing Razorpay order",
+				zap.String("order_number", order.OrderNumber),
+				zap.String("gateway_order_id", *order.GatewayOrderID),
+			)
+			return payment, nil
+		}
+	}
+
+	// 4. Create Razorpay order
 	razorpayOrder, err := s.paymentService.CreateOrder(ctx, &CreateRazorpayOrderRequest{
 		Amount:   order.TotalAmount,
 		Currency: order.Currency,
 		Receipt:  order.OrderNumber,
 		Notes: map[string]string{
-			"order_id":     fmt.Sprintf("%d", order.ID),
-			"order_number": order.OrderNumber,
+			"order_id":       fmt.Sprintf("%d", order.ID),
+			"order_number":   order.OrderNumber,
 			"customer_email": order.CustomerEmail,
 		},
 	})
@@ -248,14 +273,14 @@ func (s *OrderService) InitiatePayment(ctx context.Context, orderID int64) (*dom
 		return nil, fmt.Errorf("failed to create razorpay order: %w", err)
 	}
 
-	// 4. Update order
+	// 5. Update order status
 	order.GatewayOrderID = &razorpayOrder.ID
 	order.Status = domain.OrderStatusPaymentInitiated
 	if err := s.orderRepo.Update(ctx, order); err != nil {
 		return nil, err
 	}
 
-	// 5. Create payment record
+	// 6. Create payment record
 	payment := &domain.Payment{
 		OrderID:        order.ID,
 		Gateway:        "razorpay",
@@ -274,7 +299,6 @@ func (s *OrderService) InitiatePayment(ctx context.Context, orderID int64) (*dom
 		return nil, err
 	}
 
-	// 6. Log activity
 	s.logActivity(ctx, "payment_initiated", order.ID, 0, map[string]interface{}{
 		"gateway_order_id": razorpayOrder.ID,
 		"amount":           order.TotalAmount,
@@ -293,23 +317,24 @@ func (s *OrderService) InitiatePayment(ctx context.Context, orderID int64) (*dom
 // ============================================================================
 
 type VerifyPaymentRequest struct {
-	OrderID          int64  `json:"order_id" validate:"required"`
-	RazorpayOrderID  string `json:"razorpay_order_id" validate:"required"`
+	OrderID           int64  `json:"order_id" validate:"required"`
+	RazorpayOrderID   string `json:"razorpay_order_id" validate:"required"`
 	RazorpayPaymentID string `json:"razorpay_payment_id" validate:"required"`
 	RazorpaySignature string `json:"razorpay_signature" validate:"required"`
-	IdempotencyKey   string `json:"idempotency_key" validate:"required"`
+	IdempotencyKey    string `json:"idempotency_key"` // optional — guard against empty
 }
 
 func (s *OrderService) VerifyPayment(ctx context.Context, req *VerifyPaymentRequest) (*domain.Order, error) {
-	// 1. Check idempotency
-	existingKey, err := s.idempotencyRepo.FindByKey(ctx, req.IdempotencyKey)
-	if err == nil {
-		logger.Info("Duplicate payment verification detected", zap.String("key", req.IdempotencyKey))
-		
-		if existingKey.EntityID != nil {
-			order, err := s.orderRepo.FindByID(ctx, *existingKey.EntityID)
-			if err == nil {
-				return order, nil
+	// 1. Check idempotency — ONLY if key is non-empty
+	if req.IdempotencyKey != "" {
+		existingKey, err := s.idempotencyRepo.FindByKey(ctx, req.IdempotencyKey)
+		if err == nil && existingKey != nil {
+			logger.Info("Duplicate payment verification detected", zap.String("key", req.IdempotencyKey))
+			if existingKey.EntityID != nil {
+				order, err := s.orderRepo.FindByID(ctx, *existingKey.EntityID)
+				if err == nil && order != nil {
+					return order, nil
+				}
 			}
 		}
 	}
@@ -319,20 +344,23 @@ func (s *OrderService) VerifyPayment(ctx context.Context, req *VerifyPaymentRequ
 	if err != nil {
 		return nil, err
 	}
+	if order == nil {
+		return nil, domain.ErrNotFound
+	}
 
 	// 3. Validate order state
-	if order.Status != domain.OrderStatusPaymentInitiated && 
-	   order.Status != domain.OrderStatusPaymentProcessing {
+	if order.Status != domain.OrderStatusPaymentInitiated &&
+		order.Status != domain.OrderStatusPaymentProcessing {
 		return nil, fmt.Errorf("invalid order state for payment verification: %s", order.Status)
 	}
 
 	// 4. Get payment record
 	payment, err := s.paymentRepo.FindByGatewayOrderID(ctx, req.RazorpayOrderID)
-	if err != nil {
-		return nil, fmt.Errorf("payment record not found")
+	if err != nil || payment == nil {
+		return nil, fmt.Errorf("payment record not found for gateway order: %s", req.RazorpayOrderID)
 	}
 
-	// 5. CRITICAL: Verify signature
+	// 5. CRITICAL: Verify Razorpay signature
 	isValid := s.paymentService.VerifyPaymentSignature(
 		req.RazorpayOrderID,
 		req.RazorpayPaymentID,
@@ -340,7 +368,6 @@ func (s *OrderService) VerifyPayment(ctx context.Context, req *VerifyPaymentRequ
 	)
 
 	if !isValid {
-		// Mark as failed
 		order.Status = domain.OrderStatusFailed
 		_ = s.orderRepo.Update(ctx, order)
 
@@ -358,11 +385,11 @@ func (s *OrderService) VerifyPayment(ctx context.Context, req *VerifyPaymentRequ
 	}
 
 	// 6. Update payment record
+	now := time.Now()
 	payment.GatewayPaymentID = &req.RazorpayPaymentID
 	payment.GatewaySignature = &req.RazorpaySignature
 	payment.SignatureVerified = true
 	payment.Status = domain.PaymentStatusCaptured
-	now := time.Now()
 	payment.VerifiedAt = &now
 	payment.CapturedAt = &now
 
@@ -370,55 +397,42 @@ func (s *OrderService) VerifyPayment(ctx context.Context, req *VerifyPaymentRequ
 		return nil, err
 	}
 
-	// 7. Update order to PAID
-	order.Status = domain.OrderStatusPaid
+	// 7. Update order status
 	order.GatewayPaymentID = &req.RazorpayPaymentID
 	order.GatewaySignature = &req.RazorpaySignature
 	order.PaidAt = &now
 
-	// Auto-approve or send to admin review based on amount
-	if order.TotalAmount < 10000 { // Auto-approve orders under ₹10,000
-		order.Status = domain.OrderStatusApproved
-		order.ApprovedAt = &now
-		order.DownloadsEnabled = true
-		expiresAt := now.AddDate(0, 0, 30)
-		order.DownloadsExpiresAt = &expiresAt
-	} else {
-		order.Status = domain.OrderStatusAdminReview
-	}
+	// FIX: ₹599 is under ₹10,000 so it auto-approves.
+	// For ALL orders to go through admin review (your stated flow),
+	// remove the auto-approve threshold and always send to admin_review.
+	order.Status = domain.OrderStatusAdminReview
 
 	if err := s.orderRepo.Update(ctx, order); err != nil {
 		return nil, err
 	}
 
-	// 8. Save idempotency key
-	expiresAt := time.Now().Add(24 * time.Hour)
-	idempotencyKey := &domain.IdempotencyKey{
-		Key:           req.IdempotencyKey,
-		OperationType: "verify_payment",
-		EntityType:    strPtr("order"),
-		EntityID:      &order.ID,
-		ExpiresAt:     expiresAt,
+	// 8. Save idempotency key — ONLY if non-empty
+	if req.IdempotencyKey != "" {
+		expiresAt := time.Now().Add(24 * time.Hour)
+		idempotencyKey := &domain.IdempotencyKey{
+			Key:           req.IdempotencyKey,
+			OperationType: "verify_payment",
+			EntityType:    strPtr("order"),
+			EntityID:      &order.ID,
+			ExpiresAt:     expiresAt,
+		}
+		_ = s.idempotencyRepo.Create(ctx, idempotencyKey)
 	}
-	_ = s.idempotencyRepo.Create(ctx, idempotencyKey)
 
 	// 9. Enqueue background jobs
-	if order.Status == domain.OrderStatusApproved {
-		// Generate download tokens
-		_ = s.enqueueJob(ctx, "generate_download_tokens", map[string]interface{}{
-			"order_id": order.ID,
-		})
-
-		// Send confirmation email
-		_ = s.enqueueJob(ctx, "send_order_confirmation_email", map[string]interface{}{
-			"order_id": order.ID,
-		})
-	} else {
-		// Notify admin
-		_ = s.enqueueJob(ctx, "send_admin_review_notification", map[string]interface{}{
-			"order_id": order.ID,
-		})
-	}
+	// Always notify admin for review — admin approves → triggers confirmation email + download tokens
+	_ = s.enqueueJob(ctx, "send_admin_review_notification", map[string]interface{}{
+		"order_id":     order.ID,
+		"order_number": order.OrderNumber,
+		"amount":       order.TotalAmount,
+		"currency":     order.Currency,
+		"customer":     order.CustomerEmail,
+	})
 
 	// 10. Log activity
 	s.logActivity(ctx, "payment_verified", order.ID, 0, map[string]interface{}{
@@ -441,24 +455,26 @@ func (s *OrderService) VerifyPayment(ctx context.Context, req *VerifyPaymentRequ
 // ============================================================================
 
 func (s *OrderService) ApproveOrder(ctx context.Context, orderID int64, adminID int64, notes *string) error {
-	// 1. Approve order
+	// 1. Approve order in DB
 	if err := s.orderRepo.Approve(ctx, orderID, adminID, notes); err != nil {
 		return err
 	}
 
 	// 2. Get updated order
 	order, err := s.orderRepo.FindByID(ctx, orderID)
-	if err != nil {
+	if err != nil || order == nil {
 		return err
 	}
 
-	// 3. Enqueue jobs
+	// 3. Enqueue jobs — these fire the confirmation email + generate download tokens
 	_ = s.enqueueJob(ctx, "generate_download_tokens", map[string]interface{}{
 		"order_id": order.ID,
 	})
 
 	_ = s.enqueueJob(ctx, "send_order_confirmation_email", map[string]interface{}{
-		"order_id": order.ID,
+		"order_id":     order.ID,
+		"order_number": order.OrderNumber,
+		"customer":     order.CustomerEmail,
 	})
 
 	// 4. Log activity
@@ -475,30 +491,31 @@ func (s *OrderService) ApproveOrder(ctx context.Context, orderID int64, adminID 
 }
 
 func (s *OrderService) RejectOrder(ctx context.Context, orderID int64, adminID int64, reason string) error {
-	// 1. Reject order
+	// 1. Reject order in DB
 	if err := s.orderRepo.Reject(ctx, orderID, adminID, reason); err != nil {
 		return err
 	}
 
 	// 2. Get order
 	order, err := s.orderRepo.FindByID(ctx, orderID)
-	if err != nil {
+	if err != nil || order == nil {
 		return err
 	}
 
-	// 3. Enqueue refund job
+	// 3. Enqueue refund + rejection email
 	_ = s.enqueueJob(ctx, "process_refund", map[string]interface{}{
 		"order_id": order.ID,
 		"reason":   reason,
 	})
 
-	// 4. Notify customer
 	_ = s.enqueueJob(ctx, "send_order_rejection_email", map[string]interface{}{
-		"order_id": order.ID,
-		"reason":   reason,
+		"order_id":     order.ID,
+		"order_number": order.OrderNumber,
+		"customer":     order.CustomerEmail,
+		"reason":       reason,
 	})
 
-	// 5. Log activity
+	// 4. Log activity
 	s.logActivity(ctx, "order_rejected", order.ID, adminID, map[string]interface{}{
 		"reason": reason,
 	})
@@ -525,7 +542,6 @@ func (s *OrderService) GetOrderByNumber(ctx context.Context, orderNumber string)
 	if err != nil {
 		return nil, err
 	}
-
 	return s.orderRepo.GetWithItems(ctx, order.ID)
 }
 
@@ -548,8 +564,6 @@ func (s *OrderService) GetOrderTransitions(ctx context.Context, orderID int64) (
 // ============================================================================
 
 func (s *OrderService) generateOrderNumber() string {
-	// Use database function for uniqueness guarantee
-	// This is a fallback - normally DB generates it
 	timestamp := time.Now().Format("20060102")
 	return fmt.Sprintf("ORD-%s-%s", timestamp, generateRandomString(6))
 }
@@ -557,13 +571,12 @@ func (s *OrderService) generateOrderNumber() string {
 func (s *OrderService) enqueueJob(ctx context.Context, jobType string, payload map[string]interface{}) error {
 	job := &domain.BackgroundJob{
 		JobType:     jobType,
-		Payload:     payload,
+		Payload:     domain.JSONMap(payload),
 		Status:      domain.JobStatusPending,
 		MaxRetries:  3,
 		ScheduledAt: time.Now(),
 		Priority:    0,
 	}
-
 	return s.jobRepo.Create(ctx, job)
 }
 
@@ -572,7 +585,6 @@ func (s *OrderService) logActivity(ctx context.Context, action string, entityID 
 		return
 	}
 
-	// Convert metadata to JSONMap
 	jsonMetadata := make(domain.JSONMap)
 	for k, v := range metadata {
 		jsonMetadata[k] = v
@@ -595,12 +607,17 @@ func (s *OrderService) logActivity(ctx context.Context, action string, entityID 
 	_ = s.activityLogRepo.Create(ctx, activity)
 }
 
+// generateRandomString uses crypto/rand for production-safe randomness
 func generateRandomString(length int) string {
-	// Use crypto/rand for production
 	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, length)
 	for i := range b {
-		b[i] = charset[i%len(charset)]
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			b[i] = charset[i%len(charset)] // fallback
+			continue
+		}
+		b[i] = charset[n.Int64()]
 	}
 	return string(b)
 }
