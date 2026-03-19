@@ -27,7 +27,6 @@ type ServerConfig struct {
 	WorkerPort  int
 	Environment string
 	APIVersion  string
-	
 }
 
 type DatabaseConfig struct {
@@ -184,6 +183,12 @@ func Load() (*Config, error) {
 			RazorpayKeyID:         viper.GetString("RAZORPAY_KEY_ID"),
 			RazorpayKeySecret:     viper.GetString("RAZORPAY_KEY_SECRET"),
 			RazorpayWebhookSecret: viper.GetString("RAZORPAY_WEBHOOK_SECRET"),
+			Razorpay: RazorpayConfig{
+				KeyID:         viper.GetString("RAZORPAY_KEY_ID"),
+				KeySecret:     viper.GetString("RAZORPAY_KEY_SECRET"),
+				WebhookSecret: viper.GetString("RAZORPAY_WEBHOOK_SECRET"),
+				BaseURL:       "https://api.razorpay.com/v1",
+			},
 		},
 		Email: EmailConfig{
 			Provider:     viper.GetString("EMAIL_PROVIDER"),
