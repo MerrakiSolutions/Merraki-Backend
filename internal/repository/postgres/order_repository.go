@@ -463,32 +463,29 @@ func (r *OrderRepository) Delete(ctx context.Context, id int64, adminID int64) e
 	}
 	defer tx.Rollback()
 
-	// Check if order exists
 	var order domain.Order
-	err = tx.GetContext(ctx, &order, "SELECT * FROM orders WHERE id = $1 FOR UPDATE", id)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return domain.ErrNotFound
-		}
+	if err := tx.GetContext(ctx, &order, "SELECT * FROM orders WHERE id=$1 FOR UPDATE", id); err != nil {
 		return err
 	}
 
-	// ✅ FIRST: log deletion (before deleting order)
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO order_state_transitions (order_id, to_status, triggered_by, admin_id, reason)
-		VALUES ($1, 'deleted', 'admin', $2, 'Hard delete by admin')
-	`, id, adminID)
-	if err != nil {
+	now := time.Now()
+
+	// 1. update order status
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE orders 
+		SET status = $1, cancelled_at = $2
+		WHERE id = $3
+	`, domain.OrderStatusCancelled, now, id); err != nil {
 		return err
 	}
 
-	// ✅ THEN delete order items
-	if _, err := tx.ExecContext(ctx, "DELETE FROM order_items WHERE order_id = $1", id); err != nil {
-		return err
-	}
-
-	// ✅ THEN delete order
-	if _, err := tx.ExecContext(ctx, "DELETE FROM orders WHERE id = $1", id); err != nil {
+	// 2. audit log
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO order_state_transitions (
+			order_id, from_status, to_status, triggered_by, admin_id, reason
+		)
+		VALUES ($1, $2, $3, 'admin', $4, 'Order cancelled by admin')
+	`, id, order.Status, domain.OrderStatusCancelled, adminID); err != nil {
 		return err
 	}
 
