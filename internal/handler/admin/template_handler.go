@@ -124,10 +124,8 @@ type CreateTemplateRequest struct {
 	Tagline          *string               `json:"tagline"`
 	Description      *string               `json:"description"`
 	CategoryID       *int64                `json:"category_id"`
-	PriceINR         float64               `json:"price_inr" validate:"required,min=0"`
-	PriceUSD         float64               `json:"price_usd" validate:"required,min=0"`
-	SalePriceINR     *float64              `json:"sale_price_inr"`
-	SalePriceUSD     *float64              `json:"sale_price_usd"`
+	Price            float64               `json:"price" validate:"required,min=0"`
+	SalePrice        *float64              `json:"sale_price"`
 	IsOnSale         bool                  `json:"is_on_sale"`
 	FileURL          *string               `json:"file_url"`
 	FileSizeMB       *float64              `json:"file_size_mb"`
@@ -164,10 +162,8 @@ func (h *TemplateHandler) CreateTemplate(c *fiber.Ctx) error {
 		Tagline:          req.Tagline,
 		Description:      stringValue(req.Description),
 		CategoryID:       req.CategoryID,
-		PriceINR:         req.PriceINR,
-		PriceUSD:         req.PriceUSD,
-		SalePriceINR:     req.SalePriceINR,
-		SalePriceUSD:     req.SalePriceUSD,
+		Price:            req.Price,
+		SalePrice:        req.SalePrice,
 		IsOnSale:         req.IsOnSale,
 		FileURL:          req.FileURL,
 		FileSizeMB:       req.FileSizeMB,
@@ -228,10 +224,8 @@ func (h *TemplateHandler) UpdateTemplate(c *fiber.Ctx) error {
 		Tagline:          req.Tagline,
 		Description:      stringValue(req.Description),
 		CategoryID:       req.CategoryID,
-		PriceINR:         req.PriceINR,
-		PriceUSD:         req.PriceUSD,
-		SalePriceINR:     req.SalePriceINR,
-		SalePriceUSD:     req.SalePriceUSD,
+		Price:            req.Price,
+		SalePrice:        req.SalePrice,
 		IsOnSale:         req.IsOnSale,
 		FileURL:          req.FileURL,
 		FileSizeMB:       req.FileSizeMB,

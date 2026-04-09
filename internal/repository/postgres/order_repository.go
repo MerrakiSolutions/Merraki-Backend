@@ -26,8 +26,7 @@ func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error
 			customer_ip, customer_user_agent, customer_country,
 			billing_name, billing_email, billing_phone,
 			billing_address_line1, billing_address_line2,
-			billing_city, billing_state, billing_country, billing_postal_code,
-			currency, subtotal, tax_amount, discount_amount, total_amount,
+			billing_city, billing_state, billing_country, billing_postal_code, subtotal, tax_amount, discount_amount, total_amount,
 			payment_gateway, status, idempotency_key, metadata
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
@@ -43,7 +42,7 @@ func (r *OrderRepository) Create(ctx context.Context, order *domain.Order) error
 		order.BillingName, order.BillingEmail, order.BillingPhone,
 		order.BillingAddressLine1, order.BillingAddressLine2,
 		order.BillingCity, order.BillingState, order.BillingCountry, order.BillingPostalCode,
-		order.Currency, order.Subtotal, order.TaxAmount, order.DiscountAmount, order.TotalAmount,
+		order.Subtotal, order.TaxAmount, order.DiscountAmount, order.TotalAmount,
 		order.PaymentGateway, order.Status, order.IdempotencyKey, order.Metadata,
 	).Scan(&order.ID, &order.CreatedAt, &order.UpdatedAt)
 }
@@ -211,8 +210,7 @@ func (r *OrderRepository) Update(ctx context.Context, order *domain.Order) error
 		order.CustomerEmail, order.CustomerName, order.CustomerPhone,
 		order.BillingName, order.BillingEmail, order.BillingPhone,
 		order.BillingAddressLine1, order.BillingAddressLine2,
-		order.BillingCity, order.BillingState, order.BillingCountry, order.BillingPostalCode,
-		order.Currency, order.Subtotal, order.TaxAmount, order.DiscountAmount, order.TotalAmount,
+		order.BillingCity, order.BillingState, order.BillingCountry, order.BillingPostalCode, order.Subtotal, order.TaxAmount, order.DiscountAmount, order.TotalAmount,
 		order.GatewayOrderID, order.GatewayPaymentID, order.GatewaySignature,
 		order.Status, order.PreviousStatus, order.StatusUpdatedAt,
 		order.AdminReviewedBy, order.AdminReviewedAt, order.AdminNotes, order.RejectionReason,

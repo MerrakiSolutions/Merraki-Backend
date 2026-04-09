@@ -51,7 +51,6 @@ func NewPaymentService(
 
 type CreateRazorpayOrderRequest struct {
 	Amount   float64           `json:"amount"`
-	Currency string            `json:"currency"`
 	Receipt  string            `json:"receipt"`
 	Notes    map[string]string `json:"notes,omitempty"`
 }
@@ -59,10 +58,9 @@ type CreateRazorpayOrderRequest struct {
 type RazorpayOrder struct {
 	ID            string                 `json:"id"`
 	Entity        string                 `json:"entity"`
-	Amount        int64                  `json:"amount"` // Amount in paise/cents
+	Amount        int64                  `json:"amount"`
 	AmountPaid    int64                  `json:"amount_paid"`
 	AmountDue     int64                  `json:"amount_due"`
-	Currency      string                 `json:"currency"`
 	Receipt       string                 `json:"receipt"`
 	Status        string                 `json:"status"`
 	Attempts      int                    `json:"attempts"`
@@ -89,7 +87,6 @@ func (s *PaymentService) createOrderInternal(ctx context.Context, req *CreateRaz
 
 	payload := map[string]interface{}{
 		"amount":   amountInSmallestUnit,
-		"currency": req.Currency,
 		"receipt":  req.Receipt,
 		"notes":    req.Notes,
 	}
@@ -142,7 +139,6 @@ func (s *PaymentService) createOrderInternal(ctx context.Context, req *CreateRaz
 	logger.Info("Razorpay order created",
 		zap.String("order_id", order.ID),
 		zap.Int64("amount", order.Amount),
-		zap.String("currency", order.Currency),
 	)
 
 	return &order, nil
@@ -236,7 +232,7 @@ func (s *PaymentService) ProcessWebhook(ctx context.Context, payload []byte, sig
 		EventType:         event.Event,
 		GatewayOrderID:    &gatewayOrderID,
 		GatewayPaymentID:  &gatewayPaymentID,
-		Payload:           payloadMap, // ✅ Now it's JSONMap
+		Payload:           payloadMap,
 		Signature:         &signature,
 		SignatureVerified: isValid,
 		SourceIP:          &sourceIP,
@@ -270,7 +266,6 @@ type RazorpayPayment struct {
 	ID            string                 `json:"id"`
 	Entity        string                 `json:"entity"`
 	Amount        int64                  `json:"amount"`
-	Currency      string                 `json:"currency"`
 	Status        string                 `json:"status"`
 	OrderID       string                 `json:"order_id"`
 	Method        string                 `json:"method"`
@@ -351,7 +346,6 @@ type RazorpayRefund struct {
 	ID        string                 `json:"id"`
 	Entity    string                 `json:"entity"`
 	Amount    int64                  `json:"amount"`
-	Currency  string                 `json:"currency"`
 	PaymentID string                 `json:"payment_id"`
 	Status    string                 `json:"status"`
 	CreatedAt int64                  `json:"created_at"`

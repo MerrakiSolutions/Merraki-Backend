@@ -70,7 +70,7 @@ func main() {
 	// ========================================================================
 	// INITIALIZE REPOSITORIES
 	// ========================================================================
-	
+
 	// Auth & Admin
 	adminRepo := postgres.NewAdminRepository(db)
 	sessionRepo := postgres.NewSessionRepository(db)
@@ -131,7 +131,7 @@ func main() {
 	// Marketplace Services (NEW)
 	categoryService := service.NewCategoryService(categoryRepo, activityLogRepo)
 	templateService := service.NewTemplateService(templateRepo, categoryRepo, activityLogRepo)
-	
+
 	orderService := service.NewOrderService(
 		orderRepo,
 		orderItemRepo,
@@ -222,7 +222,6 @@ func main() {
 		Newsletter: publicHandlers.NewNewsletterHandler(newsletterService),
 		Contact:    publicHandlers.NewContactHandler(contactService),
 		Utility:    publicHandlers.NewUtilityHandler(db, redisClient),
-		Currency: publicHandlers.NewCurrencyHandler(),
 	}
 
 	// Admin Handlers
@@ -238,7 +237,6 @@ func main() {
 		Newsletter:   adminHandlers.NewNewsletterHandler(newsletterService),
 		Contact:      adminHandlers.NewContactHandler(contactService),
 		AdminUser:    adminHandlers.NewAdminUserHandler(adminService),
-		Currency:     adminHandlers.NewCurrencyHandler(),
 	}
 
 	logger.Info("✅ Handlers initialized")
@@ -248,13 +246,13 @@ func main() {
 	// ========================================================================
 
 	app := fiber.New(fiber.Config{
-		AppName:      "Merraki API v1.0.0",
-		ServerHeader: "Merraki",
-		ErrorHandler: customErrorHandler(cfg),
-		BodyLimit:    10 * 1024 * 1024, // 10MB
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		AppName:               "Merraki API v1.0.0",
+		ServerHeader:          "Merraki",
+		ErrorHandler:          customErrorHandler(cfg),
+		BodyLimit:             10 * 1024 * 1024, // 10MB
+		ReadTimeout:           30 * time.Second,
+		WriteTimeout:          30 * time.Second,
+		IdleTimeout:           120 * time.Second,
 		DisableStartupMessage: false,
 	})
 

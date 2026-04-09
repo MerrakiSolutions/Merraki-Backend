@@ -17,8 +17,7 @@ type PublicHandlers struct {
 	Blog       *publicHandlers.BlogHandler
 	Newsletter *publicHandlers.NewsletterHandler
 	Contact    *publicHandlers.ContactHandler
-	Utility    *publicHandlers.UtilityHandler   
-	Currency   *publicHandlers.CurrencyHandler  
+	Utility    *publicHandlers.UtilityHandler 
 }
 
 // ============================================================================
@@ -98,17 +97,6 @@ func SetupPublicRoutes(api fiber.Router, handlers *PublicHandlers) {
 		download.Get("/by-email", handlers.Download.GetDownloadsByEmail)
 	}
 
-	// ========================================================================
-	// OPTIONAL ROUTES (Uncomment when handlers are implemented)
-	// ========================================================================
-
-	// Currency
-	currency := public.Group("/currency")
-	{
-		currency.Get("/rates", handlers.Currency.GetExchangeRates)
-		currency.Get("/supported", handlers.Currency.GetSupportedCurrencies)
-		currency.Post("/convert", handlers.Currency.ConvertCurrency)
-	}
 
 	// Blog
 	blog := public.Group("/blog")

@@ -3,9 +3,9 @@ package service
 import (
 	"bytes"
 	"context"
-	"io"
 	"fmt"
 	"html/template"
+	"io"
 	"time"
 
 	"github.com/merraki/merraki-backend/internal/config"
@@ -59,15 +59,14 @@ func (s *EmailService) SendOrderReceived(ctx context.Context, order *domain.Orde
 			Version:  it.TemplateVersion,
 			Format:   format,
 			Quantity: it.Quantity,
-			Price:    fmt.Sprintf("%s %.2f", order.Currency, it.UnitPrice),
+			Price:    fmt.Sprintf("%s %.2f", it.UnitPrice),
 		}
 	}
 
 	data := map[string]interface{}{
 		"CustomerName": order.CustomerName,
 		"OrderNumber":  order.OrderNumber,
-		"TotalAmount":  fmt.Sprintf("%s %.2f", order.Currency, order.TotalAmount),
-		"Currency":     order.Currency,
+		"TotalAmount":  fmt.Sprintf("%s %.2f", order.TotalAmount),
 		"Items":        rows,
 		"ItemCount":    len(items),
 		"Date":         order.CreatedAt.Format("January 2, 2006"),
@@ -124,7 +123,7 @@ func (s *EmailService) SendOrderConfirmation(ctx context.Context, order *domain.
 	data := map[string]interface{}{
 		"CustomerName": order.CustomerName,
 		"OrderNumber":  order.OrderNumber,
-		"TotalAmount":  fmt.Sprintf("%s %.2f", order.Currency, order.TotalAmount),
+		"TotalAmount":  fmt.Sprintf("%s %.2f", order.TotalAmount),
 		"ItemCount":    len(items),
 		"Items":        items,
 		"TrackingURL":  fmt.Sprintf("%s/order-tracking", s.cfg.Frontend.URL),
@@ -264,8 +263,7 @@ func (s *EmailService) SendAdminOrderNotification(ctx context.Context, order *do
 		"OrderNumber":   order.OrderNumber,
 		"CustomerName":  order.CustomerName,
 		"CustomerEmail": order.CustomerEmail,
-		"TotalAmount":   fmt.Sprintf("%s %.2f", order.Currency, order.TotalAmount),
-		"Currency":      order.Currency,
+		"TotalAmount":   fmt.Sprintf("%s %.2f", order.TotalAmount),
 		"AdminURL":      fmt.Sprintf("%s/admin/orders/%d", s.cfg.Frontend.AdminURL, order.ID),
 		"Date":          order.CreatedAt.Format("January 2, 2006 at 3:04 PM"),
 	}

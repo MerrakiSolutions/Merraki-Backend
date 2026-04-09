@@ -41,6 +41,7 @@ func NewOrderService(
 	paymentService *PaymentService,
 	emailService *EmailService,
 	jobRepo repository.BackgroundJobRepository,
+
 ) *OrderService {
 	return &OrderService{
 		orderRepo:       orderRepo,
@@ -66,8 +67,7 @@ type CreateOrderRequest struct {
 	CustomerPhone     string                 `json:"customer_phone"`
 	BillingAddress    *domain.BillingAddress `json:"billing_address"`
 	Items             []CreateOrderItem      `json:"items" validate:"required,min=1,dive"`
-	Currency          string                 `json:"currency" validate:"required,oneof=INR USD"`
-	IdempotencyKey    string                 `json:"idempotency_key"` // FIX: removed validate:"required" — frontend may not send it
+	IdempotencyKey    string                 `json:"idempotency_key"`
 	CustomerIP        string                 `json:"-"`
 	CustomerUserAgent string                 `json:"-"`
 }
@@ -109,7 +109,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *CreateOrderRequest)
 			return nil, domain.ErrInsufficientStock
 		}
 
-		unitPrice := template.GetCurrentPrice(req.Currency)
+		unitPrice := template.GetCurrentPrice()
 		itemSubtotal := unitPrice * float64(item.Quantity)
 
 		orderItem := &domain.OrderItem{
@@ -145,7 +145,6 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *CreateOrderRequest)
 		CustomerPhone:     &req.CustomerPhone,
 		CustomerIP:        &req.CustomerIP,
 		CustomerUserAgent: &req.CustomerUserAgent,
-		Currency:          req.Currency,
 		Subtotal:          subtotal,
 		TaxAmount:         taxAmount,
 		DiscountAmount:    discountAmount,
@@ -213,13 +212,11 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *CreateOrderRequest)
 	s.logActivity(ctx, "order_created", order.ID, 0, map[string]interface{}{
 		"order_number": order.OrderNumber,
 		"total_amount": order.TotalAmount,
-		"currency":     order.Currency,
 	})
 
 	logger.Info("Order created successfully",
 		zap.String("order_number", order.OrderNumber),
 		zap.Float64("total", order.TotalAmount),
-		zap.String("currency", order.Currency),
 	)
 
 	return order, nil
@@ -261,7 +258,6 @@ func (s *OrderService) InitiatePayment(ctx context.Context, orderID int64) (*dom
 	// 4. Create Razorpay order
 	razorpayOrder, err := s.paymentService.CreateOrder(ctx, &CreateRazorpayOrderRequest{
 		Amount:   order.TotalAmount,
-		Currency: order.Currency,
 		Receipt:  order.OrderNumber,
 		Notes: map[string]string{
 			"order_id":       fmt.Sprintf("%d", order.ID),
@@ -286,12 +282,10 @@ func (s *OrderService) InitiatePayment(ctx context.Context, orderID int64) (*dom
 		Gateway:        "razorpay",
 		GatewayOrderID: razorpayOrder.ID,
 		Amount:         order.TotalAmount,
-		Currency:       order.Currency,
 		Status:         domain.PaymentStatusCreated,
 		GatewayResponse: domain.JSONMap{
 			"order_id": razorpayOrder.ID,
 			"amount":   razorpayOrder.Amount,
-			"currency": razorpayOrder.Currency,
 		},
 	}
 
@@ -436,7 +430,6 @@ func (s *OrderService) VerifyPayment(ctx context.Context, req *VerifyPaymentRequ
 		"order_id":     order.ID,
 		"order_number": order.OrderNumber,
 		"amount":       order.TotalAmount,
-		"currency":     order.Currency,
 		"customer":     order.CustomerEmail,
 	})
 

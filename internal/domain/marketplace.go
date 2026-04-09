@@ -78,53 +78,43 @@ type Category struct {
 // ============================================================================
 
 type Template struct {
-	ID               int64          `json:"id" db:"id"`
-	Name             string         `json:"name" db:"name"`
-	Slug             string         `json:"slug" db:"slug"`
-	Tagline          *string        `json:"tagline,omitempty" db:"tagline"`
-	Description      string         `json:"description" db:"description"`
-	CategoryID       *int64         `json:"category_id,omitempty" db:"category_id"`
-	PriceINR         float64        `json:"price_inr" db:"price_inr"`
-	PriceUSD         float64        `json:"price_usd" db:"price_usd"`
-	SalePriceINR     *float64       `json:"sale_price_inr,omitempty" db:"sale_price_inr"`
-	SalePriceUSD     *float64       `json:"sale_price_usd,omitempty" db:"sale_price_usd"`
-	IsOnSale         bool           `json:"is_on_sale" db:"is_on_sale"`
-	FileURL          *string        `json:"file_url,omitempty" db:"file_url"`
-	FileSizeMB       *float64       `json:"file_size_mb,omitempty" db:"file_size_mb"`
-	FileFormat       *string        `json:"file_format,omitempty" db:"file_format"`
-	PreviewURL       *string        `json:"preview_url,omitempty" db:"preview_url"`
-	StockQuantity    int            `json:"stock_quantity" db:"stock_quantity"`
-	IsUnlimitedStock bool           `json:"is_unlimited_stock" db:"is_unlimited_stock"`
-	Status           TemplateStatus `json:"status" db:"status"`
-	IsAvailable      bool           `json:"is_available" db:"is_available"`
-	DownloadsCount   int            `json:"downloads_count" db:"downloads_count"`
-	ViewsCount       int            `json:"views_count" db:"views_count"`
-	IsFeatured       bool           `json:"is_featured" db:"is_featured"`
-	IsBestseller     bool           `json:"is_bestseller" db:"is_bestseller"`
-	IsNew            bool           `json:"is_new" db:"is_new"`
-	MetaTitle        *string        `json:"meta_title,omitempty" db:"meta_title"`
-	MetaDescription  *string        `json:"meta_description,omitempty" db:"meta_description"`
-	MetaKeywords     pq.StringArray `json:"meta_keywords,omitempty" db:"meta_keywords"`
-	CurrentVersion   string         `json:"current_version" db:"current_version"`
-	PublishedAt      *time.Time     `json:"published_at,omitempty" db:"published_at"`
-	CreatedAt        time.Time      `json:"created_at" db:"created_at"`
-	UpdatedAt        time.Time      `json:"updated_at" db:"updated_at"`
+    ID               int64          `json:"id" db:"id"`
+    Name             string         `json:"name" db:"name"`
+    Slug             string         `json:"slug" db:"slug"`
+    Tagline          *string        `json:"tagline,omitempty" db:"tagline"`
+    Description      string         `json:"description" db:"description"`
+    CategoryID       *int64         `json:"category_id,omitempty" db:"category_id"`
+    Price            float64        `json:"price" db:"price"`
+    SalePrice        *float64       `json:"sale_price,omitempty" db:"sale_price"`
+    IsOnSale         bool           `json:"is_on_sale" db:"is_on_sale"`
+    FileURL          *string        `json:"file_url,omitempty" db:"file_url"`
+    FileSizeMB       *float64       `json:"file_size_mb,omitempty" db:"file_size_mb"`
+    FileFormat       *string        `json:"file_format,omitempty" db:"file_format"`
+    PreviewURL       *string        `json:"preview_url,omitempty" db:"preview_url"`
+    StockQuantity    int            `json:"stock_quantity" db:"stock_quantity"`
+    IsUnlimitedStock bool           `json:"is_unlimited_stock" db:"is_unlimited_stock"`
+    Status           TemplateStatus `json:"status" db:"status"`
+    IsAvailable      bool           `json:"is_available" db:"is_available"`
+    DownloadsCount   int            `json:"downloads_count" db:"downloads_count"`
+    ViewsCount       int            `json:"views_count" db:"views_count"`
+    IsFeatured       bool           `json:"is_featured" db:"is_featured"`
+    IsBestseller     bool           `json:"is_bestseller" db:"is_bestseller"`
+    IsNew            bool           `json:"is_new" db:"is_new"`
+    MetaTitle        *string        `json:"meta_title,omitempty" db:"meta_title"`
+    MetaDescription  *string        `json:"meta_description,omitempty" db:"meta_description"`
+    MetaKeywords     pq.StringArray `json:"meta_keywords,omitempty" db:"meta_keywords"`
+    CurrentVersion   string         `json:"current_version" db:"current_version"`
+    PublishedAt      *time.Time     `json:"published_at,omitempty" db:"published_at"`
+    CreatedAt        time.Time      `json:"created_at" db:"created_at"`
+    UpdatedAt        time.Time      `json:"updated_at" db:"updated_at"`
 }
 
-// GetCurrentPrice returns the applicable price based on currency and sale status
-func (t *Template) GetCurrentPrice(currency string) float64 {
-	if currency == "USD" {
-		if t.IsOnSale && t.SalePriceUSD != nil {
-			return *t.SalePriceUSD
-		}
-		return t.PriceUSD
-	}
-
-	// Default to INR
-	if t.IsOnSale && t.SalePriceINR != nil {
-		return *t.SalePriceINR
-	}
-	return t.PriceINR
+// GetCurrentPrice returns the applicable price in USD
+func (t *Template) GetCurrentPrice() float64 {
+    if t.IsOnSale && t.SalePrice != nil {
+        return *t.SalePrice
+    }
+    return t.Price
 }
 
 // IsInStock checks if template is available for purchase
@@ -221,7 +211,6 @@ type Order struct {
 	BillingState        *string      `json:"billing_state,omitempty" db:"billing_state"`
 	BillingCountry      string       `json:"billing_country" db:"billing_country"`
 	BillingPostalCode   *string      `json:"billing_postal_code,omitempty" db:"billing_postal_code"`
-	Currency            string       `json:"currency" db:"currency"`
 	Subtotal            float64      `json:"subtotal" db:"subtotal"`
 	TaxAmount           float64      `json:"tax_amount" db:"tax_amount"`
 	DiscountAmount      float64      `json:"discount_amount" db:"discount_amount"`
@@ -352,7 +341,6 @@ type Payment struct {
 	GatewayPaymentID     *string       `json:"gateway_payment_id,omitempty" db:"gateway_payment_id"`
 	GatewaySignature     *string       `json:"gateway_signature,omitempty" db:"gateway_signature"`
 	Amount               float64       `json:"amount" db:"amount"`
-	Currency             string        `json:"currency" db:"currency"`
 	Status               PaymentStatus `json:"status" db:"status"`
 	Method               *string       `json:"method,omitempty" db:"method"`
 	CardNetwork          *string       `json:"card_network,omitempty" db:"card_network"`
@@ -543,18 +531,4 @@ type CircuitBreakerState struct {
 	StateChangedAt   time.Time  `json:"state_changed_at" db:"state_changed_at"`
 	NextAttemptAt    *time.Time `json:"next_attempt_at,omitempty" db:"next_attempt_at"`
 	UpdatedAt        time.Time  `json:"updated_at" db:"updated_at"`
-}
-
-// ============================================================================
-// CURRENCY RATE
-// ============================================================================
-
-type CurrencyRate struct {
-	ID             int64     `json:"id" db:"id"`
-	BaseCurrency   string    `json:"base_currency" db:"base_currency"`
-	TargetCurrency string    `json:"target_currency" db:"target_currency"`
-	Rate           float64   `json:"rate" db:"rate"`
-	FetchedAt      time.Time `json:"fetched_at" db:"fetched_at"`
-	ExpiresAt      time.Time `json:"expires_at" db:"expires_at"`
-	CreatedAt      time.Time `json:"created_at" db:"created_at"`
 }

@@ -17,24 +17,24 @@ import (
 // ============================================================================
 
 type JobProcessor struct {
-	jobRepo            repository.BackgroundJobRepository
-	orderRepo          repository.OrderRepository
-	orderItemRepo      repository.OrderItemRepository
-	paymentRepo        repository.PaymentRepository
-	webhookRepo        repository.PaymentWebhookRepository
-	downloadTokenRepo  repository.DownloadTokenRepository
-	idempotencyRepo    repository.IdempotencyKeyRepository
-	
-	emailService       *service.EmailService
-	downloadTokenSvc   *service.DownloadTokenService
-	paymentService     *service.PaymentService
-	pdfService         *service.PDFService
-	storageService     *service.StorageService
-	
-	workerID           string
-	maxConcurrency     int
-	pollInterval       time.Duration
-	shutdownChan       chan struct{}
+	jobRepo           repository.BackgroundJobRepository
+	orderRepo         repository.OrderRepository
+	orderItemRepo     repository.OrderItemRepository
+	paymentRepo       repository.PaymentRepository
+	webhookRepo       repository.PaymentWebhookRepository
+	downloadTokenRepo repository.DownloadTokenRepository
+	idempotencyRepo   repository.IdempotencyKeyRepository
+
+	emailService     *service.EmailService
+	downloadTokenSvc *service.DownloadTokenService
+	paymentService   *service.PaymentService
+	pdfService       *service.PDFService
+	storageService   *service.StorageService
+
+	workerID       string
+	maxConcurrency int
+	pollInterval   time.Duration
+	shutdownChan   chan struct{}
 }
 
 func NewJobProcessor(
@@ -140,7 +140,6 @@ func (w *JobProcessor) processNextJob(ctx context.Context) {
 		return // Job already locked by another worker
 	}
 
-
 	logger.Info("Processing job",
 		zap.Int64("job_id", job.ID),
 		zap.String("job_type", job.JobType),
@@ -191,33 +190,35 @@ func (w *JobProcessor) processNextJob(ctx context.Context) {
 
 func (w *JobProcessor) executeJob(ctx context.Context, job *domain.BackgroundJob) error {
 	switch job.JobType {
+	case "send_order_received_email":
+		return w.handleSendOrderReceivedEmail(ctx, job)
 	case "send_order_confirmation_email":
 		return w.handleSendOrderConfirmationEmail(ctx, job)
-	
+
 	case "send_order_approval_email":
 		return w.handleSendOrderApprovalEmail(ctx, job)
-	
+
 	case "send_order_rejection_email":
 		return w.handleSendOrderRejectionEmail(ctx, job)
-	
+
 	case "send_admin_review_notification":
 		return w.handleSendAdminReviewNotification(ctx, job)
-	
+
 	case "generate_download_tokens":
 		return w.handleGenerateDownloadTokens(ctx, job)
-	
+
 	case "process_webhook":
 		return w.handleProcessWebhook(ctx, job)
-	
+
 	case "process_refund":
 		return w.handleProcessRefund(ctx, job)
-	
+
 	case "cleanup_expired_tokens":
 		return w.handleCleanupExpiredTokens(ctx, job)
-	
+
 	case "cleanup_idempotency_keys":
 		return w.handleCleanupIdempotencyKeys(ctx, job)
-	
+
 	default:
 		return fmt.Errorf("unknown job type: %s", job.JobType)
 	}
@@ -353,13 +354,13 @@ func (w *JobProcessor) handleProcessWebhook(ctx context.Context, job *domain.Bac
 	switch eventType {
 	case "payment.captured":
 		return w.handlePaymentCapturedWebhook(ctx, webhook, webhookData)
-	
+
 	case "payment.failed":
 		return w.handlePaymentFailedWebhook(ctx, webhook, webhookData)
-	
+
 	case "refund.processed":
 		return w.handleRefundProcessedWebhook(ctx, webhook, webhookData)
-	
+
 	default:
 		logger.Warn("Unknown webhook event type",
 			zap.String("event_type", eventType),
@@ -373,19 +374,19 @@ func (w *JobProcessor) handleSendOrderReceivedEmail(ctx context.Context, job *do
 	if err != nil {
 		return err
 	}
- 
+
 	// Get order
 	order, err := w.orderRepo.FindByID(ctx, orderID)
 	if err != nil {
 		return fmt.Errorf("failed to get order: %w", err)
 	}
- 
+
 	// Get order items
 	items, err := w.orderItemRepo.GetByOrderID(ctx, orderID)
 	if err != nil {
 		return fmt.Errorf("failed to get order items: %w", err)
 	}
- 
+
 	// Generate receipt PDF
 	var pdfBytes []byte
 	if w.pdfService != nil {
@@ -399,7 +400,7 @@ func (w *JobProcessor) handleSendOrderReceivedEmail(ctx context.Context, job *do
 			pdfBytes = nil
 		}
 	}
- 
+
 	// Send email to customer with order details + PDF receipt
 	return w.emailService.SendOrderReceived(ctx, order, items, pdfBytes)
 }

@@ -19,7 +19,6 @@ type AdminHandlers struct {
 	Newsletter   *adminHandlers.NewsletterHandler
 	Contact      *adminHandlers.ContactHandler
 	AdminUser    *adminHandlers.AdminUserHandler
-	Currency     *adminHandlers.CurrencyHandler
 }
 
 func SetupAdminRoutes(api fiber.Router, h *AdminHandlers, cfg *config.Config) {
@@ -30,7 +29,6 @@ func SetupAdminRoutes(api fiber.Router, h *AdminHandlers, cfg *config.Config) {
 
 	setupProtectedAuthRoutes(protected, h)
 	setupDashboardRoutes(protected, h)
-	setupCurrencyRoutes(api, h)
 	setupBlogRoutes(protected, h)
 	setupOrderRoutes(protected, h)
 	setupTemplateRoutes(protected, h)
@@ -74,12 +72,6 @@ func setupDashboardRoutes(protected fiber.Router, h *AdminHandlers) {
 	d.Get("/charts", h.Dashboard.GetCharts)
 	d.Get("/notifications", h.Dashboard.GetNotifications)
 	d.Put("/notifications/:id/read", h.Dashboard.MarkNotificationRead)
-}
-
-/* ================= CURRENCY ================= */
-
-func setupCurrencyRoutes(api fiber.Router, h *AdminHandlers) {
-	api.Post("/currency/refresh", h.Currency.RefreshRates)
 }
 
 /* ================= BLOG ================= */

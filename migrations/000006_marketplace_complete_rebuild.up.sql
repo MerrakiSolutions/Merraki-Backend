@@ -70,10 +70,8 @@ CREATE TABLE templates (
     category_id BIGINT REFERENCES categories(id) ON DELETE SET NULL,
     
     -- Pricing (stored in multiple currencies for quick access)
-    price_inr DECIMAL(10, 2) NOT NULL DEFAULT 0,
-    price_usd DECIMAL(10, 2) NOT NULL DEFAULT 0,
-    sale_price_inr DECIMAL(10, 2),
-    sale_price_usd DECIMAL(10, 2),
+    price DECIMAL(10, 2) NOT NULL DEFAULT 0,
+    sale_price DECIMAL(10, 2),
     is_on_sale BOOLEAN DEFAULT false,
     
     -- Digital asset
@@ -186,23 +184,6 @@ CREATE INDEX idx_template_tags_template ON template_tags(template_id);
 CREATE INDEX idx_template_tags_tag ON template_tags(tag);
 
 -- ============================================================================
--- CURRENCY EXCHANGE RATES - Cached from external API
--- ============================================================================
-CREATE TABLE currency_rates (
-    id BIGSERIAL PRIMARY KEY,
-    base_currency VARCHAR(3) NOT NULL DEFAULT 'USD',
-    target_currency VARCHAR(3) NOT NULL,
-    rate DECIMAL(12, 6) NOT NULL,
-    fetched_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(base_currency, target_currency)
-);
-
-CREATE INDEX idx_currency_rates_target ON currency_rates(target_currency);
-CREATE INDEX idx_currency_rates_expires ON currency_rates(expires_at);
-
--- ============================================================================
 -- ORDERS - Core transactional table (Guest checkout supported)
 -- ============================================================================
 CREATE TABLE orders (
@@ -233,7 +214,6 @@ CREATE TABLE orders (
     billing_postal_code VARCHAR(20),
     
     -- Pricing snapshot (IMMUTABLE - server-side authority)
-    currency VARCHAR(3) NOT NULL DEFAULT 'INR',
     subtotal DECIMAL(10, 2) NOT NULL,
     tax_amount DECIMAL(10, 2) DEFAULT 0,
     discount_amount DECIMAL(10, 2) DEFAULT 0,
@@ -343,7 +323,6 @@ CREATE TABLE payments (
     
     -- Payment details
     amount DECIMAL(10, 2) NOT NULL,
-    currency VARCHAR(3) NOT NULL,
     status payment_status NOT NULL DEFAULT 'created',
     
     -- Payment method (captured from gateway)

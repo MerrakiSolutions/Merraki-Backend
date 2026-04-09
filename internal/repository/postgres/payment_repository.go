@@ -20,7 +20,7 @@ func (r *PaymentRepository) Create(ctx context.Context, payment *domain.Payment)
 	query := `
 		INSERT INTO payments (
 			order_id, gateway, gateway_order_id, gateway_payment_id, gateway_signature,
-			amount, currency, status,
+			amount, status,
 			method, card_network, card_last4, bank, wallet, vpa,
 			customer_email, customer_phone,
 			signature_verified, gateway_response,
@@ -36,7 +36,7 @@ func (r *PaymentRepository) Create(ctx context.Context, payment *domain.Payment)
 	return r.db.QueryRowContext(
 		ctx, query,
 		payment.OrderID, payment.Gateway, payment.GatewayOrderID, payment.GatewayPaymentID, payment.GatewaySignature,
-		payment.Amount, payment.Currency, payment.Status,
+		payment.Amount, payment.Status,
 		payment.Method, payment.CardNetwork, payment.CardLast4, payment.Bank, payment.Wallet, payment.VPA,
 		payment.CustomerEmail, payment.CustomerPhone,
 		payment.SignatureVerified, payment.GatewayResponse,

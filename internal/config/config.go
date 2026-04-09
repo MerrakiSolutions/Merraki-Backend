@@ -15,7 +15,6 @@ type Config struct {
 	Storage  StorageConfig
 	Payment  PaymentConfig
 	Email    EmailConfig
-	External ExternalConfig
 	Frontend FrontendConfig
 	CORS     CORSConfig
 	Security SecurityConfig
@@ -59,16 +58,11 @@ type AuthConfig struct {
 }
 
 type StorageConfig struct {
-	Provider         string // cloudinary or minio
+	Provider         string
 	CloudinaryName   string
 	CloudinaryKey    string
 	CloudinarySecret string
 	CloudinaryFolder string
-	MinioEndpoint    string
-	MinioAccessKey   string
-	MinioSecretKey   string
-	MinioBucket      string
-	MinioUseSSL      bool
 }
 
 type PaymentConfig struct {
@@ -79,7 +73,7 @@ type PaymentConfig struct {
 }
 
 type EmailConfig struct {
-	Provider     string // sendgrid or smtp
+	Provider     string
 	SendGridKey  string
 	SMTPHost     string
 	SMTPPort     int
@@ -94,11 +88,6 @@ type RazorpayConfig struct {
 	KeySecret     string `mapstructure:"key_secret"`
 	WebhookSecret string `mapstructure:"webhook_secret"`
 	BaseURL       string `mapstructure:"base_url"`
-}
-
-type ExternalConfig struct {
-	ExchangeRateAPIKey string
-	ExchangeRateAPIURL string
 }
 
 type FrontendConfig struct {
@@ -128,11 +117,8 @@ type LoggingConfig struct {
 func Load() (*Config, error) {
 	viper.SetConfigFile(".env")
 	viper.AutomaticEnv()
-
-	// Try reading .env file, but ignore if not present (production)
 	if err := viper.ReadInConfig(); err != nil {
-		// Only ignore if file not found
-		// You can optionally log this
+
 	}
 	cfg := &Config{
 		Server: ServerConfig{
@@ -173,11 +159,6 @@ func Load() (*Config, error) {
 			CloudinaryKey:    viper.GetString("CLOUDINARY_API_KEY"),
 			CloudinarySecret: viper.GetString("CLOUDINARY_API_SECRET"),
 			CloudinaryFolder: viper.GetString("CLOUDINARY_FOLDER"),
-			MinioEndpoint:    viper.GetString("MINIO_ENDPOINT"),
-			MinioAccessKey:   viper.GetString("MINIO_ACCESS_KEY"),
-			MinioSecretKey:   viper.GetString("MINIO_SECRET_KEY"),
-			MinioBucket:      viper.GetString("MINIO_BUCKET"),
-			MinioUseSSL:      viper.GetBool("MINIO_USE_SSL"),
 		},
 		Payment: PaymentConfig{
 			RazorpayKeyID:         viper.GetString("RAZORPAY_KEY_ID"),
@@ -199,10 +180,6 @@ func Load() (*Config, error) {
 			SMTPPassword: viper.GetString("SMTP_PASSWORD"),
 			FromEmail:    viper.GetString("EMAIL_FROM"),
 			FromName:     viper.GetString("EMAIL_FROM_NAME"),
-		},
-		External: ExternalConfig{
-			ExchangeRateAPIKey: viper.GetString("EXCHANGE_RATE_API_KEY"),
-			ExchangeRateAPIURL: viper.GetString("EXCHANGE_RATE_API_URL"),
 		},
 		Frontend: FrontendConfig{
 			URL:      viper.GetString("FRONTEND_URL"),

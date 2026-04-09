@@ -39,7 +39,7 @@ func (s *PDFService) GenerateOrderInvoice(ctx context.Context, order *domain.Ord
 	pdf.SetFont("Arial", "", 10)
 	pdf.Cell(0, 5, "www.merrakisolutions.com")
 	pdf.Ln(5)
-	pdf.Cell(0, 5, "support@merrakisolutions.com")
+	pdf.Cell(0, 5, "info@merrakisolutions.com")
 	pdf.Ln(10)
 
 	// Order Info
@@ -83,24 +83,24 @@ func (s *PDFService) GenerateOrderInvoice(ctx context.Context, order *domain.Ord
 	// Totals
 	pdf.SetFont("Arial", "B", 10)
 	pdf.Cell(160, 6, "Subtotal:")
-	pdf.Cell(30, 6, fmt.Sprintf("%s %.2f", order.Currency, order.Subtotal))
+	pdf.Cell(30, 6, fmt.Sprintf("%s %.2f", order.Subtotal))
 	pdf.Ln(6)
 
 	if order.TaxAmount > 0 {
 		pdf.Cell(160, 6, "Tax:")
-		pdf.Cell(30, 6, fmt.Sprintf("%s %.2f", order.Currency, order.TaxAmount))
+		pdf.Cell(30, 6, fmt.Sprintf("%s %.2f",order.TaxAmount))
 		pdf.Ln(6)
 	}
 
 	if order.DiscountAmount > 0 {
 		pdf.Cell(160, 6, "Discount:")
-		pdf.Cell(30, 6, fmt.Sprintf("-%s %.2f", order.Currency, order.DiscountAmount))
+		pdf.Cell(30, 6, fmt.Sprintf("-%s %.2f", order.DiscountAmount))
 		pdf.Ln(6)
 	}
 
 	pdf.SetFont("Arial", "B", 12)
 	pdf.Cell(160, 8, "Total:")
-	pdf.Cell(30, 8, fmt.Sprintf("%s %.2f", order.Currency, order.TotalAmount))
+	pdf.Cell(30, 8, fmt.Sprintf("%s %.2f", order.TotalAmount))
 
 	// Generate PDF bytes
 	var buf bytes.Buffer

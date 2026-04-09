@@ -23,7 +23,7 @@ func (r *TemplateRepository) Create(ctx context.Context, template *domain.Templa
 	query := `
 		INSERT INTO templates (
 			name, slug, tagline, description, category_id,
-			price_inr, price_usd, sale_price_inr, sale_price_usd, is_on_sale,
+			price, sale_price, is_on_sale,
 			file_url, file_size_mb, file_format, preview_url,
 			stock_quantity, is_unlimited_stock, status, is_available,
 			is_featured, is_bestseller, is_new,
@@ -39,7 +39,7 @@ func (r *TemplateRepository) Create(ctx context.Context, template *domain.Templa
 	return r.db.QueryRowContext(
 		ctx, query,
 		template.Name, template.Slug, template.Tagline, template.Description, template.CategoryID,
-		template.PriceINR, template.PriceUSD, template.SalePriceINR, template.SalePriceUSD, template.IsOnSale,
+		template.Price, template.SalePrice, template.IsOnSale,
 		template.FileURL, template.FileSizeMB, template.FileFormat, template.PreviewURL,
 		template.StockQuantity, template.IsUnlimitedStock, template.Status, template.IsAvailable,
 		template.IsFeatured, template.IsBestseller, template.IsNew,
@@ -123,9 +123,9 @@ func (r *TemplateRepository) GetAll(ctx context.Context, filters map[string]inte
 	if sortBy, ok := filters["sort"].(string); ok {
 		switch sortBy {
 		case "price_asc":
-			orderBy = "price_inr ASC"
+			orderBy = "price ASC"
 		case "price_desc":
-			orderBy = "price_inr DESC"
+			orderBy = "price DESC"
 		case "popular":
 			orderBy = "downloads_count DESC"
 		case "newest":
@@ -366,19 +366,19 @@ func (r *TemplateRepository) Update(ctx context.Context, template *domain.Templa
 	query := `
 		UPDATE templates SET
 			name = $1, slug = $2, tagline = $3, description = $4, category_id = $5,
-			price_inr = $6, price_usd = $7, sale_price_inr = $8, sale_price_usd = $9, is_on_sale = $10,
-			file_url = $11, file_size_mb = $12, file_format = $13, preview_url = $14,
-			stock_quantity = $15, is_unlimited_stock = $16, status = $17, is_available = $18,
-			is_featured = $19, is_bestseller = $20, is_new = $21,
-			meta_title = $22, meta_description = $23, meta_keywords = $24,
-			current_version = $25, published_at = $26
-		WHERE id = $27
+			price = $6, sale_price = $7, is_on_sale = $8,
+			file_url = $9, file_size_mb = $10, file_format = $11, preview_url = $12,
+			stock_quantity = $13, is_unlimited_stock = $14, status = $15, is_available = $16,
+			is_featured = $17, is_bestseller = $18, is_new = $19,
+			meta_title = $20, meta_description = $21, meta_keywords = $22,
+			current_version = $23, published_at = $24
+		WHERE id = $25
 	`
 
 	_, err := r.db.ExecContext(
 		ctx, query,
 		template.Name, template.Slug, template.Tagline, template.Description, template.CategoryID,
-		template.PriceINR, template.PriceUSD, template.SalePriceINR, template.SalePriceUSD, template.IsOnSale,
+		template.Price, template.SalePrice, template.IsOnSale,
 		template.FileURL, template.FileSizeMB, template.FileFormat, template.PreviewURL,
 		template.StockQuantity, template.IsUnlimitedStock, template.Status, template.IsAvailable,
 		template.IsFeatured, template.IsBestseller, template.IsNew,

@@ -37,7 +37,6 @@ type CreateOrderRequest struct {
 	CustomerPhone  string                      `json:"customer_phone"`
 	BillingAddress *domain.BillingAddress      `json:"billing_address"`
 	Items          []service.CreateOrderItem   `json:"items" validate:"required,min=1,dive"`
-	Currency       string                      `json:"currency" validate:"required,oneof=INR USD"`
 	IdempotencyKey string                      `json:"idempotency_key" validate:"required"`
 }
 
@@ -57,7 +56,6 @@ func (h *CheckoutHandler) CreateOrder(c *fiber.Ctx) error {
 		CustomerPhone:     req.CustomerPhone,
 		BillingAddress:    req.BillingAddress,
 		Items:             req.Items,
-		Currency:          req.Currency,
 		IdempotencyKey:    req.IdempotencyKey,
 		CustomerIP:        c.IP(),
 		CustomerUserAgent: string(c.Request().Header.UserAgent()),
@@ -96,8 +94,7 @@ type InitiatePaymentRequest struct {
 type InitiatePaymentResponse struct {
 	RazorpayOrderID string  `json:"razorpay_order_id"`
 	Amount          float64 `json:"amount"`
-	Currency        string  `json:"currency"`
-	KeyID           string  `json:"key_id"` // Razorpay public key
+	KeyID           string  `json:"key_id"`
 	OrderNumber     string  `json:"order_number"`
 }
 
@@ -130,7 +127,6 @@ func (h *CheckoutHandler) InitiatePayment(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"razorpay_order_id": payment.GatewayOrderID,
 		"amount":            order.Order.TotalAmount,
-		"currency":          order.Order.Currency,
 		"key_id":            h.getKeyID(),
 		"order_number":      order.Order.OrderNumber,
 	})
@@ -222,7 +218,5 @@ func (h *CheckoutHandler) HandleWebhook(c *fiber.Ctx) error {
 // ============================================================================
 
 func (h *CheckoutHandler) getKeyID() string {
-	// You'll need to add a getter method to PaymentService
-	// For now, return from config through service
 	return h.paymentService.GetKeyID()
 }
