@@ -28,27 +28,27 @@ type TemplateRepository interface {
 	GetAllWithRelations(ctx context.Context, filters map[string]interface{}, limit, offset int) ([]*domain.TemplateWithRelations, int, error)
 	Update(ctx context.Context, template *domain.Template) error
 	Delete(ctx context.Context, id int64) error
-	
+
 	// Stock management
 	DecrementStock(ctx context.Context, id int64, quantity int) error
 	IncrementDownloads(ctx context.Context, id int64) error
 	IncrementViews(ctx context.Context, id int64) error
-	
+
 	// Images
 	CreateImage(ctx context.Context, image *domain.TemplateImage) error
 	GetImages(ctx context.Context, templateID int64) ([]*domain.TemplateImage, error)
 	DeleteImage(ctx context.Context, id int64) error
-	
+
 	// Features
 	CreateFeature(ctx context.Context, feature *domain.TemplateFeature) error
 	GetFeatures(ctx context.Context, templateID int64) ([]*domain.TemplateFeature, error)
 	DeleteFeature(ctx context.Context, id int64) error
-	
+
 	// Tags
 	AddTag(ctx context.Context, templateID int64, tag string) error
 	GetTags(ctx context.Context, templateID int64) ([]string, error)
 	RemoveTags(ctx context.Context, templateID int64) error
-	
+
 	// Versions
 	CreateVersion(ctx context.Context, version *domain.TemplateVersion) error
 	GetVersions(ctx context.Context, templateID int64) ([]*domain.TemplateVersion, error)
@@ -65,20 +65,26 @@ type OrderRepository interface {
 	FindByEmail(ctx context.Context, email string, limit, offset int) ([]*domain.Order, int, error)
 	GetAll(ctx context.Context, filters map[string]interface{}, limit, offset int) ([]*domain.Order, int, error)
 	Update(ctx context.Context, order *domain.Order) error
-	
+
 	// With items
 	GetWithItems(ctx context.Context, id int64) (*domain.OrderWithItems, error)
-	
+
 	// State management
 	UpdateStatus(ctx context.Context, id int64, newStatus domain.OrderStatus, adminID *int64) error
-	
+
 	// Admin actions
 	Approve(ctx context.Context, id int64, adminID int64, notes *string) error
 	Reject(ctx context.Context, id int64, adminID int64, reason string) error
-	
+
 	// Analytics
 	GetRevenueByDateRange(ctx context.Context, startDate, endDate string) (float64, error)
 	GetOrderCountByStatus(ctx context.Context) (map[domain.OrderStatus]int, error)
+
+	// MarkasPaid
+	MarkAsPaid(ctx context.Context, id int64, adminID int64, gatewayOrderID string) error
+
+	// Delete
+	Delete(ctx context.Context, id int64, adminID int64) error
 }
 
 type OrderItemRepository interface {

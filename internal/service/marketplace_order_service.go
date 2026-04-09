@@ -558,6 +558,60 @@ func (s *OrderService) GetOrderTransitions(ctx context.Context, orderID int64) (
 	return s.transitionRepo.GetByOrderID(ctx, orderID)
 }
 
+func (s *OrderService) MarkOrderAsPaid(ctx context.Context, orderID int64, adminID int64, gatewayOrderID string) error {
+	// 1. Mark order as paid
+	if err := s.orderRepo.MarkAsPaid(ctx, orderID, adminID, gatewayOrderID); err != nil {
+		return err
+	}
+
+	// 2. Fetch updated order
+	order, err := s.orderRepo.FindByID(ctx, orderID)
+	if err != nil {
+		return err
+	}
+	if order == nil {
+		return domain.ErrNotFound
+	}
+
+	// 3. Enqueue jobs
+	_ = s.enqueueJob(ctx, "generate_download_tokens", map[string]interface{}{
+		"order_id": order.ID,
+	})
+
+	_ = s.enqueueJob(ctx, "send_order_confirmation_email", map[string]interface{}{
+		"order_id":     order.ID,
+		"order_number": order.OrderNumber,
+		"customer":     order.CustomerEmail,
+	})
+
+	// 4. Log activity
+	s.logActivity(ctx, "order_marked_as_paid", order.ID, adminID, nil)
+
+	logger.Info("Order marked as paid by admin",
+		zap.String("order_number", order.OrderNumber),
+		zap.Int64("admin_id", adminID),
+	)
+
+	return nil
+}
+
+func (s *OrderService) DeleteOrder(ctx context.Context, orderID int64, adminID int64) error {
+	// 1. Delete order
+	if err := s.orderRepo.Delete(ctx, orderID, adminID); err != nil {
+		return err
+	}
+
+	// 2. Log activity
+	s.logActivity(ctx, "order_deleted", orderID, adminID, nil)
+
+	logger.Info("Order deleted by admin",
+		zap.Int64("order_id", orderID),
+		zap.Int64("admin_id", adminID),
+	)
+
+	return nil
+}
+
 // ============================================================================
 // HELPER METHODS
 // ============================================================================

@@ -118,8 +118,16 @@ func setupOrderRoutes(protected fiber.Router, h *AdminHandlers) {
 	o.Get("/pending-review", h.Order.GetPendingReviewOrders)
 	o.Get("/:id", h.Order.GetOrderByID)
 
+	// Admin actions
 	o.Post("/:id/approve", h.Order.ApproveOrder)
 	o.Post("/:id/reject", h.Order.RejectOrder)
+
+	// Mark as paid
+	o.Post("/:id/mark-paid", h.Order.MarkOrderAsPaid)
+
+	// Delete order
+	o.Delete("/:id", h.Order.DeleteOrder)
+
 }
 
 /* ================= TEMPLATES ================= */

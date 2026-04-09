@@ -397,3 +397,102 @@ func (r *OrderRepository) GetOrderCountByStatus(ctx context.Context) (map[domain
 
 	return result, nil
 }
+
+func (r *OrderRepository) GetAverageOrderValue(ctx context.Context) (float64, error) {
+	var avg float64
+	query := `SELECT COALESCE(AVG(total_amount), 0) FROM orders WHERE status IN ('approved', 'paid')`
+	err := r.db.GetContext(ctx, &avg, query)
+	return avg, err
+}
+
+func (r *OrderRepository) MarkAsPaid(ctx context.Context, id int64, adminID int64, gatewayOrderID string) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now()
+
+	query := `
+		UPDATE orders 
+		SET status = $1, 
+		    previous_status = status, 
+		    status_updated_at = $2, 
+		    paid_at = $3,
+		    gateway_order_id = $4
+		WHERE id = $5 AND status = 'pending'
+	`
+
+	result, err := tx.ExecContext(
+		ctx,
+		query,
+		domain.OrderStatusPaid,
+		now,
+		now,
+		gatewayOrderID,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return domain.ErrInvalidStateTransition
+	}
+
+	// Record transition
+	transQuery := `
+		INSERT INTO order_state_transitions (order_id, from_status, to_status, triggered_by, admin_id)
+		VALUES ($1, 'pending', 'paid', 'admin', $2)
+	`
+
+	_, err = tx.ExecContext(ctx, transQuery, id, adminID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *OrderRepository) Delete(ctx context.Context, id int64, adminID int64) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Get current order
+	var order domain.Order
+	err = tx.GetContext(ctx, &order, "SELECT * FROM orders WHERE id = $1 FOR UPDATE", id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return domain.ErrNotFound
+		}
+		return err
+	}
+
+	// Only allow delete if order is pending or rejected
+	if order.Status != domain.OrderStatusPending && order.Status != domain.OrderStatusRejected {
+		return domain.ErrInvalidStateTransition
+	}
+
+	// Delete order items
+	if _, err := tx.ExecContext(ctx, "DELETE FROM order_items WHERE order_id = $1", id); err != nil {
+		return err
+	}
+
+	// Delete order
+	if _, err := tx.ExecContext(ctx, "DELETE FROM orders WHERE id = $1", id); err != nil {
+		return err
+	}
+
+	// Optional: audit log inside DB (recommended for production)
+	_, _ = tx.ExecContext(ctx, `
+		INSERT INTO order_state_transitions (order_id, to_status, triggered_by, admin_id, reason)
+		VALUES ($1, 'deleted', 'admin', $2, 'Order deleted')
+	`, id, adminID)
+
+	return tx.Commit()
+}

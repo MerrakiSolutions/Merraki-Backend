@@ -18,6 +18,10 @@ type OrderHandler struct {
 	orderService *service.OrderService
 }
 
+type markPaidRequest struct {
+	GatewayOrderID string `json:"gateway_order_id"`
+}
+
 func NewOrderHandler(orderService *service.OrderService) *OrderHandler {
 	return &OrderHandler{
 		orderService: orderService,
@@ -231,5 +235,84 @@ func (h *OrderHandler) GetPendingReviewOrders(c *fiber.Ctx) error {
 		"total":  total,
 		"page":   page,
 		"limit":  limit,
+	})
+}
+
+// GET /api/v1/admin/orders/:id/mark-paid
+func (h *OrderHandler) MarkOrderAsPaid(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid order ID",
+		})
+	}
+
+	var req markPaidRequest
+	if err := c.BodyParser(&req); err != nil || req.GatewayOrderID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "gateway_order_id is required",
+		})
+	}
+
+	adminID := c.Locals("admin_id").(int64)
+
+	err = h.orderService.MarkOrderAsPaid(c.Context(), id, adminID, req.GatewayOrderID)
+	if err != nil {
+		logger.Error("Failed to mark order as paid", zap.Error(err))
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to mark order as paid",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Order marked as paid successfully",
+	})
+}
+
+// DELETE /api/v1/admin/orders/:id
+func (h *OrderHandler) DeleteOrder(c *fiber.Ctx) error {
+	idStr := c.Params("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid order ID",
+		})
+	}
+
+	// Safer type assertion
+	adminIDVal := c.Locals("admin_id")
+	adminID, ok := adminIDVal.(int64)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Unauthorized",
+		})
+	}
+
+	err = h.orderService.DeleteOrder(c.Context(), id, adminID)
+	if err != nil {
+		logger.Error("Failed to delete order", zap.Error(err))
+
+		if err == domain.ErrInvalidStateTransition {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Order cannot be deleted in current state",
+			})
+		}
+
+		if err == domain.ErrNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": "Order not found",
+			})
+		}
+
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to delete order",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": "Order deleted successfully",
 	})
 }
