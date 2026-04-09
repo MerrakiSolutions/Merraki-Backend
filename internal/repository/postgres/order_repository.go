@@ -473,21 +473,24 @@ func (r *OrderRepository) Delete(ctx context.Context, id int64, adminID int64) e
 		return err
 	}
 
-	// Delete order items
+	// ✅ FIRST: log deletion (before deleting order)
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO order_state_transitions (order_id, to_status, triggered_by, admin_id, reason)
+		VALUES ($1, 'deleted', 'admin', $2, 'Hard delete by admin')
+	`, id, adminID)
+	if err != nil {
+		return err
+	}
+
+	// ✅ THEN delete order items
 	if _, err := tx.ExecContext(ctx, "DELETE FROM order_items WHERE order_id = $1", id); err != nil {
 		return err
 	}
 
-	// Delete order
+	// ✅ THEN delete order
 	if _, err := tx.ExecContext(ctx, "DELETE FROM orders WHERE id = $1", id); err != nil {
 		return err
 	}
-
-	// ✅ Audit log (VERY IMPORTANT for hard delete)
-	_, _ = tx.ExecContext(ctx, `
-		INSERT INTO order_state_transitions (order_id, to_status, triggered_by, admin_id, reason)
-		VALUES ($1, 'deleted', 'admin', $2, 'Hard delete by admin')
-	`, id, adminID)
 
 	return tx.Commit()
 }
