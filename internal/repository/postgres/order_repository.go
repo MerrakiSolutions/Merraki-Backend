@@ -463,31 +463,61 @@ func (r *OrderRepository) Delete(ctx context.Context, id int64, adminID int64) e
 	}
 	defer tx.Rollback()
 
+	// 1. Check order exists
 	var order domain.Order
-	if err := tx.GetContext(ctx, &order, "SELECT * FROM orders WHERE id=$1 FOR UPDATE", id); err != nil {
+	err = tx.GetContext(ctx, &order, "SELECT * FROM orders WHERE id = $1 FOR UPDATE", id)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return domain.ErrNotFound
+		}
 		return err
 	}
 
-	now := time.Now()
-
-	// 1. update order status
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE orders 
-		SET status = $1, cancelled_at = $2
-		WHERE id = $3
-	`, domain.OrderStatusCancelled, now, id); err != nil {
+	// 2. Delete order items FIRST (important for FK safety)
+	if _, err := tx.ExecContext(ctx,
+		"DELETE FROM order_items WHERE order_id = $1",
+		id,
+	); err != nil {
 		return err
 	}
 
-	// 2. audit log
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO order_state_transitions (
-			order_id, from_status, to_status, triggered_by, admin_id, reason
-		)
-		VALUES ($1, $2, $3, 'admin', $4, 'Order cancelled by admin')
-	`, id, order.Status, domain.OrderStatusCancelled, adminID); err != nil {
+	// 3. Delete state transitions
+	if _, err := tx.ExecContext(ctx,
+		"DELETE FROM order_state_transitions WHERE order_id = $1",
+		id,
+	); err != nil {
 		return err
 	}
+
+	// 4. OPTIONAL: delete related downloads/tokens if you have them
+	// (uncomment if exists in your schema)
+	/*
+	_, err = tx.ExecContext(ctx,
+		"DELETE FROM download_tokens WHERE order_id = $1",
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	*/
+
+	// 5. Delete order itself
+	if _, err := tx.ExecContext(ctx,
+		"DELETE FROM orders WHERE id = $1",
+		id,
+	); err != nil {
+		return err
+	}
+
+	// 6. Admin audit log (IMPORTANT — keeps trace of deletion)
+	_, _ = tx.ExecContext(ctx, `
+		INSERT INTO admin_audit_logs (admin_id, action, entity_type, entity_id, metadata)
+		VALUES ($1, 'hard_delete_order', 'order', $2, $3)
+	`,
+		adminID,
+		id,
+		`{"type":"hard_delete"}`,
+	)
 
 	return tx.Commit()
 }
