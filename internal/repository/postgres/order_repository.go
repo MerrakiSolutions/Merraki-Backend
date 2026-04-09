@@ -461,63 +461,34 @@ func (r *OrderRepository) Delete(ctx context.Context, id int64, adminID int64) e
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
 
-	// 1. Check order exists
-	var order domain.Order
-	err = tx.GetContext(ctx, &order, "SELECT * FROM orders WHERE id = $1 FOR UPDATE", id)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return domain.ErrNotFound
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
 		}
-		return err
-	}
+	}()
 
-	// 2. Delete order items FIRST (important for FK safety)
+	// delete children
 	if _, err := tx.ExecContext(ctx,
-		"DELETE FROM order_items WHERE order_id = $1",
-		id,
-	); err != nil {
+		"DELETE FROM order_items WHERE order_id = $1", id); err != nil {
 		return err
 	}
 
-	// 3. Delete state transitions
 	if _, err := tx.ExecContext(ctx,
-		"DELETE FROM order_state_transitions WHERE order_id = $1",
-		id,
-	); err != nil {
+		"DELETE FROM order_state_transitions WHERE order_id = $1", id); err != nil {
 		return err
 	}
 
-	// 4. OPTIONAL: delete related downloads/tokens if you have them
-	// (uncomment if exists in your schema)
-	/*
-	_, err = tx.ExecContext(ctx,
-		"DELETE FROM download_tokens WHERE order_id = $1",
-		id,
-	)
-	if err != nil {
-		return err
-	}
-	*/
-
-	// 5. Delete order itself
 	if _, err := tx.ExecContext(ctx,
-		"DELETE FROM orders WHERE id = $1",
-		id,
-	); err != nil {
+		"DELETE FROM orders WHERE id = $1", id); err != nil {
 		return err
 	}
 
-	// 6. Admin audit log (IMPORTANT — keeps trace of deletion)
-	_, _ = tx.ExecContext(ctx, `
-		INSERT INTO admin_audit_logs (admin_id, action, entity_type, entity_id, metadata)
-		VALUES ($1, 'hard_delete_order', 'order', $2, $3)
-	`,
-		adminID,
-		id,
-		`{"type":"hard_delete"}`,
-	)
+	if err := tx.Commit(); err != nil {
+		return err
+	}
 
-	return tx.Commit()
+	committed = true
+	return nil
 }
