@@ -463,7 +463,7 @@ func (r *OrderRepository) Delete(ctx context.Context, id int64, adminID int64) e
 	}
 	defer tx.Rollback()
 
-	// Get current order
+	// Check if order exists
 	var order domain.Order
 	err = tx.GetContext(ctx, &order, "SELECT * FROM orders WHERE id = $1 FOR UPDATE", id)
 	if err != nil {
@@ -471,11 +471,6 @@ func (r *OrderRepository) Delete(ctx context.Context, id int64, adminID int64) e
 			return domain.ErrNotFound
 		}
 		return err
-	}
-
-	// Only allow delete if order is pending or rejected
-	if order.Status != domain.OrderStatusPending && order.Status != domain.OrderStatusRejected {
-		return domain.ErrInvalidStateTransition
 	}
 
 	// Delete order items
@@ -488,10 +483,10 @@ func (r *OrderRepository) Delete(ctx context.Context, id int64, adminID int64) e
 		return err
 	}
 
-	// Optional: audit log inside DB (recommended for production)
+	// ✅ Audit log (VERY IMPORTANT for hard delete)
 	_, _ = tx.ExecContext(ctx, `
 		INSERT INTO order_state_transitions (order_id, to_status, triggered_by, admin_id, reason)
-		VALUES ($1, 'deleted', 'admin', $2, 'Order deleted')
+		VALUES ($1, 'deleted', 'admin', $2, 'Hard delete by admin')
 	`, id, adminID)
 
 	return tx.Commit()
