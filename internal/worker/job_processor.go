@@ -516,7 +516,6 @@ func (w *JobProcessor) handleProcessRefund(ctx context.Context, job *domain.Back
 
 	// Update order status
 	order.Status = domain.OrderStatusRefunded
-	order.RefundedAt = &now
 
 	if err := w.orderRepo.Update(ctx, order); err != nil {
 		return fmt.Errorf("failed to update order: %w", err)

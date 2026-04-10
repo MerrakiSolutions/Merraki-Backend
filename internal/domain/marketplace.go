@@ -47,13 +47,28 @@ const (
 type JobStatus string
 
 const (
-	JobStatusPending    JobStatus = "pending"
+	JobStatusPending   JobStatus = "pending"
 	JobStatusRunning   JobStatus = "running"
-	JobStatusProcessing JobStatus = "processing"
-	JobStatusCompleted  JobStatus = "completed"
-	JobStatusFailed     JobStatus = "failed"
-	JobStatusRetrying   JobStatus = "retrying"
+	JobStatusCompleted JobStatus = "completed"
+	JobStatusFailed    JobStatus = "failed"
+	JobStatusRetrying  JobStatus = "retrying"
 )
+
+// ============================================================================
+// CURRENCY
+// ============================================================================
+
+const Currency = "USD"
+
+// CentsToUSD converts cents to display float (use only at API/display boundary)
+func CentsToUSD(cents int64) float64 {
+	return float64(cents) / 100.0
+}
+
+// USDToCents converts a USD float to cents (use only at input boundary)
+func USDToCents(usd float64) int64 {
+	return int64(usd * 100)
+}
 
 // ============================================================================
 // CATEGORY
@@ -78,54 +93,54 @@ type Category struct {
 // ============================================================================
 
 type Template struct {
-    ID               int64          `json:"id" db:"id"`
-    Name             string         `json:"name" db:"name"`
-    Slug             string         `json:"slug" db:"slug"`
-    Tagline          *string        `json:"tagline,omitempty" db:"tagline"`
-    Description      string         `json:"description" db:"description"`
-    CategoryID       *int64         `json:"category_id,omitempty" db:"category_id"`
-    Price            float64        `json:"price" db:"price"`
-    SalePrice        *float64       `json:"sale_price,omitempty" db:"sale_price"`
-    IsOnSale         bool           `json:"is_on_sale" db:"is_on_sale"`
-    FileURL          *string        `json:"file_url,omitempty" db:"file_url"`
-    FileSizeMB       *float64       `json:"file_size_mb,omitempty" db:"file_size_mb"`
-    FileFormat       *string        `json:"file_format,omitempty" db:"file_format"`
-    PreviewURL       *string        `json:"preview_url,omitempty" db:"preview_url"`
-    StockQuantity    int            `json:"stock_quantity" db:"stock_quantity"`
-    IsUnlimitedStock bool           `json:"is_unlimited_stock" db:"is_unlimited_stock"`
-    Status           TemplateStatus `json:"status" db:"status"`
-    IsAvailable      bool           `json:"is_available" db:"is_available"`
-    DownloadsCount   int            `json:"downloads_count" db:"downloads_count"`
-    ViewsCount       int            `json:"views_count" db:"views_count"`
-    IsFeatured       bool           `json:"is_featured" db:"is_featured"`
-    IsBestseller     bool           `json:"is_bestseller" db:"is_bestseller"`
-    IsNew            bool           `json:"is_new" db:"is_new"`
-    MetaTitle        *string        `json:"meta_title,omitempty" db:"meta_title"`
-    MetaDescription  *string        `json:"meta_description,omitempty" db:"meta_description"`
-    MetaKeywords     pq.StringArray `json:"meta_keywords,omitempty" db:"meta_keywords"`
-    CurrentVersion   string         `json:"current_version" db:"current_version"`
-    PublishedAt      *time.Time     `json:"published_at,omitempty" db:"published_at"`
-    CreatedAt        time.Time      `json:"created_at" db:"created_at"`
-    UpdatedAt        time.Time      `json:"updated_at" db:"updated_at"`
+	ID                int64          `json:"id" db:"id"`
+	Name              string         `json:"name" db:"name"`
+	Slug              string         `json:"slug" db:"slug"`
+	Tagline           *string        `json:"tagline,omitempty" db:"tagline"`
+	Description       string         `json:"description" db:"description"`
+	CategoryID        *int64         `json:"category_id,omitempty" db:"category_id"`
+	PriceUSDCents     int64          `json:"price_usd_cents" db:"price_usd_cents"`
+	SalePriceUSDCents *int64         `json:"sale_price_usd_cents,omitempty" db:"sale_price_usd_cents"`
+	FileURL           *string        `json:"file_url,omitempty" db:"file_url"`
+	FileSizeMB        *float64       `json:"file_size_mb,omitempty" db:"file_size_mb"`
+	FileFormat        *string        `json:"file_format,omitempty" db:"file_format"`
+	PreviewURL        *string        `json:"preview_url,omitempty" db:"preview_url"`
+	Status            TemplateStatus `json:"status" db:"status"`
+	DownloadsCount    int            `json:"downloads_count" db:"downloads_count"`
+	ViewsCount        int            `json:"views_count" db:"views_count"`
+	IsFeatured        bool           `json:"is_featured" db:"is_featured"`
+	IsBestseller      bool           `json:"is_bestseller" db:"is_bestseller"`
+	IsNew             bool           `json:"is_new" db:"is_new"`
+	MetaTitle         *string        `json:"meta_title,omitempty" db:"meta_title"`
+	MetaDescription   *string        `json:"meta_description,omitempty" db:"meta_description"`
+	MetaKeywords      pq.StringArray `json:"meta_keywords,omitempty" db:"meta_keywords"`
+	CurrentVersion    string         `json:"current_version" db:"current_version"`
+	PublishedAt       *time.Time     `json:"published_at,omitempty" db:"published_at"`
+	CreatedAt         time.Time      `json:"created_at" db:"created_at"`
+	UpdatedAt         time.Time      `json:"updated_at" db:"updated_at"`
 }
 
-// GetCurrentPrice returns the applicable price in USD
-func (t *Template) GetCurrentPrice() float64 {
-    if t.IsOnSale && t.SalePrice != nil {
-        return *t.SalePrice
-    }
-    return t.Price
+// IsOnSale returns true if a sale price is set
+func (t *Template) IsOnSale() bool {
+	return t.SalePriceUSDCents != nil
 }
 
-// IsInStock checks if template is available for purchase
-func (t *Template) IsInStock() bool {
-	if !t.IsAvailable || t.Status != TemplateStatusActive {
-		return false
+// IsAvailable returns true if the template can be purchased
+func (t *Template) IsAvailable() bool {
+	return t.Status == TemplateStatusActive
+}
+
+// GetCurrentPriceCents returns the applicable price in USD cents
+func (t *Template) GetCurrentPriceCents() int64 {
+	if t.SalePriceUSDCents != nil {
+		return *t.SalePriceUSDCents
 	}
-	if t.IsUnlimitedStock {
-		return true
-	}
-	return t.StockQuantity > 0
+	return t.PriceUSDCents
+}
+
+// GetCurrentPriceUSD returns the applicable price as a USD float (display only)
+func (t *Template) GetCurrentPriceUSD() float64 {
+	return CentsToUSD(t.GetCurrentPriceCents())
 }
 
 // TemplateWithRelations includes related data
@@ -194,49 +209,41 @@ type TemplateAnalytics struct {
 // ============================================================================
 
 type Order struct {
-	ID                  int64        `json:"id" db:"id"`
-	OrderNumber         string       `json:"order_number" db:"order_number"`
-	CustomerEmail       string       `json:"customer_email" db:"customer_email"`
-	CustomerName        string       `json:"customer_name" db:"customer_name"`
-	CustomerPhone       *string      `json:"customer_phone,omitempty" db:"customer_phone"`
-	CustomerIP          *string      `json:"customer_ip,omitempty" db:"customer_ip"`
-	CustomerUserAgent   *string      `json:"customer_user_agent,omitempty" db:"customer_user_agent"`
-	CustomerCountry     *string      `json:"customer_country,omitempty" db:"customer_country"`
-	BillingName         *string      `json:"billing_name,omitempty" db:"billing_name"`
-	BillingEmail        *string      `json:"billing_email,omitempty" db:"billing_email"`
-	BillingPhone        *string      `json:"billing_phone,omitempty" db:"billing_phone"`
-	BillingAddressLine1 *string      `json:"billing_address_line1,omitempty" db:"billing_address_line1"`
-	BillingAddressLine2 *string      `json:"billing_address_line2,omitempty" db:"billing_address_line2"`
-	BillingCity         *string      `json:"billing_city,omitempty" db:"billing_city"`
-	BillingState        *string      `json:"billing_state,omitempty" db:"billing_state"`
-	BillingCountry      string       `json:"billing_country" db:"billing_country"`
-	BillingPostalCode   *string      `json:"billing_postal_code,omitempty" db:"billing_postal_code"`
-	Subtotal            float64      `json:"subtotal" db:"subtotal"`
-	TaxAmount           float64      `json:"tax_amount" db:"tax_amount"`
-	DiscountAmount      float64      `json:"discount_amount" db:"discount_amount"`
-	TotalAmount         float64      `json:"total_amount" db:"total_amount"`
-	PaymentGateway      string       `json:"payment_gateway" db:"payment_gateway"`
-	GatewayOrderID      *string      `json:"gateway_order_id,omitempty" db:"gateway_order_id"`
-	GatewayPaymentID    *string      `json:"gateway_payment_id,omitempty" db:"gateway_payment_id"`
-	GatewaySignature    *string      `json:"gateway_signature,omitempty" db:"gateway_signature"`
-	Status              OrderStatus  `json:"status" db:"status"`
-	PreviousStatus      *OrderStatus `json:"previous_status,omitempty" db:"previous_status"`
-	StatusUpdatedAt     *time.Time   `json:"status_updated_at,omitempty" db:"status_updated_at"`
-	AdminReviewedBy     *int64       `json:"admin_reviewed_by,omitempty" db:"admin_reviewed_by"`
-	AdminReviewedAt     *time.Time   `json:"admin_reviewed_at,omitempty" db:"admin_reviewed_at"`
-	AdminNotes          *string      `json:"admin_notes,omitempty" db:"admin_notes"`
-	RejectionReason     *string      `json:"rejection_reason,omitempty" db:"rejection_reason"`
-	DownloadsEnabled    bool         `json:"downloads_enabled" db:"downloads_enabled"`
-	DownloadsExpiresAt  *time.Time   `json:"downloads_expires_at,omitempty" db:"downloads_expires_at"`
-	IdempotencyKey      *string      `json:"idempotency_key,omitempty" db:"idempotency_key"`
-	Metadata            JSONMap      `json:"metadata,omitempty" db:"metadata"`
-	PaidAt              *time.Time   `json:"paid_at,omitempty" db:"paid_at"`
-	ApprovedAt          *time.Time   `json:"approved_at,omitempty" db:"approved_at"`
-	RejectedAt          *time.Time   `json:"rejected_at,omitempty" db:"rejected_at"`
-	CancelledAt         *time.Time   `json:"cancelled_at,omitempty" db:"cancelled_at"`
-	RefundedAt          *time.Time   `json:"refunded_at,omitempty" db:"refunded_at"`
-	CreatedAt           time.Time    `json:"created_at" db:"created_at"`
-	UpdatedAt           time.Time    `json:"updated_at" db:"updated_at"`
+	ID                     int64       `json:"id" db:"id"`
+	OrderNumber            string      `json:"order_number" db:"order_number"`
+	CustomerEmail          string      `json:"customer_email" db:"customer_email"`
+	CustomerName           string      `json:"customer_name" db:"customer_name"`
+	CustomerPhone          *string     `json:"customer_phone,omitempty" db:"customer_phone"`
+	CustomerIP             *string     `json:"customer_ip,omitempty" db:"customer_ip"`
+	CustomerUserAgent      *string     `json:"customer_user_agent,omitempty" db:"customer_user_agent"`
+	CustomerCountry        *string     `json:"customer_country,omitempty" db:"customer_country"`
+	BillingName            *string     `json:"billing_name,omitempty" db:"billing_name"`
+	BillingEmail           *string     `json:"billing_email,omitempty" db:"billing_email"`
+	BillingPhone           *string     `json:"billing_phone,omitempty" db:"billing_phone"`
+	BillingAddressLine1    *string     `json:"billing_address_line1,omitempty" db:"billing_address_line1"`
+	BillingAddressLine2    *string     `json:"billing_address_line2,omitempty" db:"billing_address_line2"`
+	BillingCity            *string     `json:"billing_city,omitempty" db:"billing_city"`
+	BillingState           *string     `json:"billing_state,omitempty" db:"billing_state"`
+	BillingCountry         string      `json:"billing_country" db:"billing_country"`
+	BillingPostalCode      *string     `json:"billing_postal_code,omitempty" db:"billing_postal_code"`
+	SubtotalUSDCents       int64       `json:"subtotal_usd_cents" db:"subtotal_usd_cents"`
+	TaxAmountUSDCents      int64       `json:"tax_amount_usd_cents" db:"tax_amount_usd_cents"`
+	DiscountAmountUSDCents int64       `json:"discount_amount_usd_cents" db:"discount_amount_usd_cents"`
+	TotalAmountUSDCents    int64       `json:"total_amount_usd_cents" db:"total_amount_usd_cents"`
+	PaymentGateway         string      `json:"payment_gateway" db:"payment_gateway"`
+	GatewayOrderID         *string     `json:"gateway_order_id,omitempty" db:"gateway_order_id"`
+	GatewayPaymentID       *string     `json:"gateway_payment_id,omitempty" db:"gateway_payment_id"`
+	Status                 OrderStatus `json:"status" db:"status"`
+	AdminReviewedBy        *int64      `json:"admin_reviewed_by,omitempty" db:"admin_reviewed_by"`
+	AdminReviewedAt        *time.Time  `json:"admin_reviewed_at,omitempty" db:"admin_reviewed_at"`
+	AdminNotes             *string     `json:"admin_notes,omitempty" db:"admin_notes"`
+	RejectionReason        *string     `json:"rejection_reason,omitempty" db:"rejection_reason"`
+	DownloadsEnabled       bool        `json:"downloads_enabled" db:"downloads_enabled"`
+	DownloadsExpiresAt     *time.Time  `json:"downloads_expires_at,omitempty" db:"downloads_expires_at"`
+	IdempotencyKey         *string     `json:"idempotency_key,omitempty" db:"idempotency_key"`
+	Metadata               JSONMap     `json:"metadata,omitempty" db:"metadata"`
+	CreatedAt              time.Time   `json:"created_at" db:"created_at"`
+	UpdatedAt              time.Time   `json:"updated_at" db:"updated_at"`
 }
 
 // OrderWithItems includes order items
@@ -246,7 +253,7 @@ type OrderWithItems struct {
 }
 
 // ============================================================================
-// ORDER STATE MACHINE - Valid transitions
+// ORDER STATE MACHINE
 // ============================================================================
 
 var ValidOrderTransitions = map[OrderStatus][]OrderStatus{
@@ -265,40 +272,38 @@ var ValidOrderTransitions = map[OrderStatus][]OrderStatus{
 	},
 	OrderStatusPaid: {
 		OrderStatusAdminReview,
-		OrderStatusApproved, // Auto-approve scenario
+		OrderStatusApproved, // auto-approve scenario
 	},
 	OrderStatusAdminReview: {
 		OrderStatusApproved,
 		OrderStatusRejected,
 	},
 	OrderStatusApproved: {
-		OrderStatusRefunded, // Refund scenario
+		OrderStatusRefunded,
 	},
 	OrderStatusRejected: {
-		OrderStatusRefunded, // Refund after rejection
+		OrderStatusRefunded, // refund after rejection
 	},
 	OrderStatusFailed:    {},
 	OrderStatusCancelled: {},
 	OrderStatusRefunded:  {},
 }
 
-// CanTransitionTo checks if state transition is valid
+// CanTransitionTo checks if a state transition is valid
 func (o *Order) CanTransitionTo(newStatus OrderStatus) bool {
 	validTransitions, exists := ValidOrderTransitions[o.Status]
 	if !exists {
 		return false
 	}
-
 	for _, validStatus := range validTransitions {
 		if validStatus == newStatus {
 			return true
 		}
 	}
-
 	return false
 }
 
-// IsTerminalState checks if order is in a final state
+// IsTerminalState checks if the order is in a final state
 func (o *Order) IsTerminalState() bool {
 	return o.Status == OrderStatusApproved ||
 		o.Status == OrderStatusRejected ||
@@ -318,9 +323,7 @@ type OrderItem struct {
 	TemplateName     string     `json:"template_name" db:"template_name"`
 	TemplateSlug     string     `json:"template_slug" db:"template_slug"`
 	TemplateVersion  string     `json:"template_version" db:"template_version"`
-	UnitPrice        float64    `json:"unit_price" db:"unit_price"`
-	Quantity         int        `json:"quantity" db:"quantity"`
-	Subtotal         float64    `json:"subtotal" db:"subtotal"`
+	PriceUSDCents    int64      `json:"price_usd_cents" db:"price_usd_cents"`
 	FileURL          *string    `json:"file_url,omitempty" db:"file_url"`
 	FileFormat       *string    `json:"file_format,omitempty" db:"file_format"`
 	FileSizeMB       *float64   `json:"file_size_mb,omitempty" db:"file_size_mb"`
@@ -340,7 +343,7 @@ type Payment struct {
 	GatewayOrderID       string        `json:"gateway_order_id" db:"gateway_order_id"`
 	GatewayPaymentID     *string       `json:"gateway_payment_id,omitempty" db:"gateway_payment_id"`
 	GatewaySignature     *string       `json:"gateway_signature,omitempty" db:"gateway_signature"`
-	Amount               float64       `json:"amount" db:"amount"`
+	AmountUSDCents       int64         `json:"amount_usd_cents" db:"amount_usd_cents"`
 	Status               PaymentStatus `json:"status" db:"status"`
 	Method               *string       `json:"method,omitempty" db:"method"`
 	CardNetwork          *string       `json:"card_network,omitempty" db:"card_network"`
@@ -350,15 +353,15 @@ type Payment struct {
 	VPA                  *string       `json:"vpa,omitempty" db:"vpa"`
 	CustomerEmail        *string       `json:"customer_email,omitempty" db:"customer_email"`
 	CustomerPhone        *string       `json:"customer_phone,omitempty" db:"customer_phone"`
-	SignatureVerified    bool          `json:"signature_verified" db:"signature_verified"`
+	SignatureVerified     bool          `json:"signature_verified" db:"signature_verified"`
 	VerifiedAt           *time.Time    `json:"verified_at,omitempty" db:"verified_at"`
 	VerificationAttempts int           `json:"verification_attempts" db:"verification_attempts"`
 	GatewayResponse      JSONMap       `json:"gateway_response,omitempty" db:"gateway_response"`
 	ErrorCode            *string       `json:"error_code,omitempty" db:"error_code"`
 	ErrorDescription     *string       `json:"error_description,omitempty" db:"error_description"`
 	ErrorSource          *string       `json:"error_source,omitempty" db:"error_source"`
-	GatewayFee           *float64      `json:"gateway_fee,omitempty" db:"gateway_fee"`
-	NetAmount            *float64      `json:"net_amount,omitempty" db:"net_amount"`
+	GatewayFeeUSDCents   *int64        `json:"gateway_fee_usd_cents,omitempty" db:"gateway_fee_usd_cents"`
+	NetAmountUSDCents    *int64        `json:"net_amount_usd_cents,omitempty" db:"net_amount_usd_cents"`
 	AuthorizedAt         *time.Time    `json:"authorized_at,omitempty" db:"authorized_at"`
 	CapturedAt           *time.Time    `json:"captured_at,omitempty" db:"captured_at"`
 	FailedAt             *time.Time    `json:"failed_at,omitempty" db:"failed_at"`
@@ -372,24 +375,24 @@ type Payment struct {
 // ============================================================================
 
 type PaymentWebhook struct {
-	ID                int64      `json:"id" db:"id"`
-	WebhookID         *string    `json:"webhook_id,omitempty" db:"webhook_id"`
-	EventType         string     `json:"event_type" db:"event_type"`
-	OrderID           *int64     `json:"order_id,omitempty" db:"order_id"`
-	PaymentID         *int64     `json:"payment_id,omitempty" db:"payment_id"`
-	GatewayOrderID    *string    `json:"gateway_order_id,omitempty" db:"gateway_order_id"`
-	GatewayPaymentID  *string    `json:"gateway_payment_id,omitempty" db:"gateway_payment_id"`
-	Payload           JSONMap    `json:"payload" db:"payload"`
-	Signature         *string    `json:"signature,omitempty" db:"signature"`
+	ID               int64      `json:"id" db:"id"`
+	WebhookID        *string    `json:"webhook_id,omitempty" db:"webhook_id"`
+	EventType        string     `json:"event_type" db:"event_type"`
+	OrderID          *int64     `json:"order_id,omitempty" db:"order_id"`
+	PaymentID        *int64     `json:"payment_id,omitempty" db:"payment_id"`
+	GatewayOrderID   *string    `json:"gateway_order_id,omitempty" db:"gateway_order_id"`
+	GatewayPaymentID *string    `json:"gateway_payment_id,omitempty" db:"gateway_payment_id"`
+	Payload          JSONMap    `json:"payload" db:"payload"`
+	Signature        *string    `json:"signature,omitempty" db:"signature"`
 	SignatureVerified bool       `json:"signature_verified" db:"signature_verified"`
-	Processed         bool       `json:"processed" db:"processed"`
-	ProcessedAt       *time.Time `json:"processed_at,omitempty" db:"processed_at"`
-	ProcessingError   *string    `json:"processing_error,omitempty" db:"processing_error"`
-	RetryCount        int        `json:"retry_count" db:"retry_count"`
-	MaxRetries        int        `json:"max_retries" db:"max_retries"`
-	SourceIP          *string    `json:"source_ip,omitempty" db:"source_ip"`
-	UserAgent         *string    `json:"user_agent,omitempty" db:"user_agent"`
-	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
+	Processed        bool       `json:"processed" db:"processed"`
+	ProcessedAt      *time.Time `json:"processed_at,omitempty" db:"processed_at"`
+	ProcessingError  *string    `json:"processing_error,omitempty" db:"processing_error"`
+	RetryCount       int        `json:"retry_count" db:"retry_count"`
+	MaxRetries       int        `json:"max_retries" db:"max_retries"`
+	SourceIP         *string    `json:"source_ip,omitempty" db:"source_ip"`
+	UserAgent        *string    `json:"user_agent,omitempty" db:"user_agent"`
+	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
 }
 
 // ============================================================================
@@ -416,7 +419,7 @@ type DownloadToken struct {
 	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
 }
 
-// IsValid checks if token is valid for use
+// IsValid checks if the token is valid for use
 func (dt *DownloadToken) IsValid() bool {
 	if dt.IsRevoked {
 		return false

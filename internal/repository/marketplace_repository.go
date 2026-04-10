@@ -29,11 +29,6 @@ type TemplateRepository interface {
 	Update(ctx context.Context, template *domain.Template) error
 	Delete(ctx context.Context, id int64) error
 
-	// Stock management
-	DecrementStock(ctx context.Context, id int64, quantity int) error
-	IncrementDownloads(ctx context.Context, id int64) error
-	IncrementViews(ctx context.Context, id int64) error
-
 	// Images
 	CreateImage(ctx context.Context, image *domain.TemplateImage) error
 	GetImages(ctx context.Context, templateID int64) ([]*domain.TemplateImage, error)
@@ -54,6 +49,21 @@ type TemplateRepository interface {
 	GetVersions(ctx context.Context, templateID int64) ([]*domain.TemplateVersion, error)
 	GetCurrentVersion(ctx context.Context, templateID int64) (*domain.TemplateVersion, error)
 	SetCurrentVersion(ctx context.Context, templateID int64, versionID int64) error
+
+	// Extended queries
+    Search(ctx context.Context, query string, limit int) ([]*domain.Template, error)
+    GetByCategory(ctx context.Context, categoryID int64, limit, offset int) ([]*domain.Template, int, error)
+    GetByTag(ctx context.Context, tag string, limit, offset int) ([]*domain.Template, int, error)
+    GetFeatured(ctx context.Context, limit int) ([]*domain.Template, error)
+    GetBestsellers(ctx context.Context, limit int) ([]*domain.Template, error)
+    GetNew(ctx context.Context, limit int) ([]*domain.Template, error)
+    IncrementDownloads(ctx context.Context, id int64) error
+    IncrementViews(ctx context.Context, id int64) error
+
+    // Extended template methods
+    FindByName(ctx context.Context, name string) (*domain.Template, error)
+    Patch(ctx context.Context, id int64, updates map[string]interface{}) error
+    ReplaceAllTags(ctx context.Context, templateID int64, tags []string) error
 }
 
 type OrderRepository interface {

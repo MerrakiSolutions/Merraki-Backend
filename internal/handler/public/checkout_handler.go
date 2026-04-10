@@ -66,13 +66,6 @@ func (h *CheckoutHandler) CreateOrder(c *fiber.Ctx) error {
 	if err != nil {
 		logger.Error("Failed to create order", zap.Error(err))
 		
-		// Check error type
-		if err == domain.ErrInsufficientStock {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Insufficient stock",
-			})
-		}
-		
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to create order",
 		})
@@ -126,7 +119,7 @@ func (h *CheckoutHandler) InitiatePayment(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"razorpay_order_id": payment.GatewayOrderID,
-		"amount":            order.Order.TotalAmount,
+		"amount": domain.CentsToUSD(order.Order.TotalAmountUSDCents),
 		"key_id":            h.getKeyID(),
 		"order_number":      order.Order.OrderNumber,
 	})

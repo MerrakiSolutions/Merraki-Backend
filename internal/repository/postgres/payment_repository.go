@@ -20,36 +20,34 @@ func (r *PaymentRepository) Create(ctx context.Context, payment *domain.Payment)
 	query := `
 		INSERT INTO payments (
 			order_id, gateway, gateway_order_id, gateway_payment_id, gateway_signature,
-			amount, status,
+			amount_usd_cents, status,
 			method, card_network, card_last4, bank, wallet, vpa,
 			customer_email, customer_phone,
 			signature_verified, gateway_response,
 			error_code, error_description, error_source,
-			gateway_fee, net_amount
+			gateway_fee_usd_cents, net_amount_usd_cents
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
 			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-			$21, $22, $23
+			$21, $22
 		) RETURNING id, created_at, updated_at
 	`
 
 	return r.db.QueryRowContext(
 		ctx, query,
 		payment.OrderID, payment.Gateway, payment.GatewayOrderID, payment.GatewayPaymentID, payment.GatewaySignature,
-		payment.Amount, payment.Status,
+		payment.AmountUSDCents, payment.Status,
 		payment.Method, payment.CardNetwork, payment.CardLast4, payment.Bank, payment.Wallet, payment.VPA,
 		payment.CustomerEmail, payment.CustomerPhone,
 		payment.SignatureVerified, payment.GatewayResponse,
 		payment.ErrorCode, payment.ErrorDescription, payment.ErrorSource,
-		payment.GatewayFee, payment.NetAmount,
+		payment.GatewayFeeUSDCents, payment.NetAmountUSDCents,
 	).Scan(&payment.ID, &payment.CreatedAt, &payment.UpdatedAt)
 }
 
 func (r *PaymentRepository) FindByID(ctx context.Context, id int64) (*domain.Payment, error) {
 	var payment domain.Payment
-	query := `SELECT * FROM payments WHERE id = $1`
-
-	err := r.db.GetContext(ctx, &payment, query, id)
+	err := r.db.GetContext(ctx, &payment, `SELECT * FROM payments WHERE id = $1`, id)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrNotFound
 	}
@@ -58,9 +56,9 @@ func (r *PaymentRepository) FindByID(ctx context.Context, id int64) (*domain.Pay
 
 func (r *PaymentRepository) FindByGatewayOrderID(ctx context.Context, gatewayOrderID string) (*domain.Payment, error) {
 	var payment domain.Payment
-	query := `SELECT * FROM payments WHERE gateway_order_id = $1 ORDER BY created_at DESC LIMIT 1`
-
-	err := r.db.GetContext(ctx, &payment, query, gatewayOrderID)
+	err := r.db.GetContext(ctx, &payment,
+		`SELECT * FROM payments WHERE gateway_order_id = $1 ORDER BY created_at DESC LIMIT 1`, gatewayOrderID,
+	)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrNotFound
 	}
@@ -69,9 +67,9 @@ func (r *PaymentRepository) FindByGatewayOrderID(ctx context.Context, gatewayOrd
 
 func (r *PaymentRepository) FindByGatewayPaymentID(ctx context.Context, gatewayPaymentID string) (*domain.Payment, error) {
 	var payment domain.Payment
-	query := `SELECT * FROM payments WHERE gateway_payment_id = $1 LIMIT 1`
-
-	err := r.db.GetContext(ctx, &payment, query, gatewayPaymentID)
+	err := r.db.GetContext(ctx, &payment,
+		`SELECT * FROM payments WHERE gateway_payment_id = $1 LIMIT 1`, gatewayPaymentID,
+	)
 	if err == sql.ErrNoRows {
 		return nil, domain.ErrNotFound
 	}
@@ -80,8 +78,9 @@ func (r *PaymentRepository) FindByGatewayPaymentID(ctx context.Context, gatewayP
 
 func (r *PaymentRepository) GetByOrderID(ctx context.Context, orderID int64) ([]*domain.Payment, error) {
 	var payments []*domain.Payment
-	query := `SELECT * FROM payments WHERE order_id = $1 ORDER BY created_at DESC`
-	err := r.db.SelectContext(ctx, &payments, query, orderID)
+	err := r.db.SelectContext(ctx, &payments,
+		`SELECT * FROM payments WHERE order_id = $1 ORDER BY created_at DESC`, orderID,
+	)
 	return payments, err
 }
 
@@ -95,8 +94,9 @@ func (r *PaymentRepository) Update(ctx context.Context, payment *domain.Payment)
 			signature_verified = $12, verified_at = $13, verification_attempts = $14,
 			gateway_response = $15,
 			error_code = $16, error_description = $17, error_source = $18,
-			gateway_fee = $19, net_amount = $20,
-			authorized_at = $21, captured_at = $22, failed_at = $23, refunded_at = $24
+			gateway_fee_usd_cents = $19, net_amount_usd_cents = $20,
+			authorized_at = $21, captured_at = $22, failed_at = $23, refunded_at = $24,
+			updated_at = CURRENT_TIMESTAMP
 		WHERE id = $25
 	`
 
@@ -109,7 +109,7 @@ func (r *PaymentRepository) Update(ctx context.Context, payment *domain.Payment)
 		payment.SignatureVerified, payment.VerifiedAt, payment.VerificationAttempts,
 		payment.GatewayResponse,
 		payment.ErrorCode, payment.ErrorDescription, payment.ErrorSource,
-		payment.GatewayFee, payment.NetAmount,
+		payment.GatewayFeeUSDCents, payment.NetAmountUSDCents,
 		payment.AuthorizedAt, payment.CapturedAt, payment.FailedAt, payment.RefundedAt,
 		payment.ID,
 	)
@@ -129,7 +129,7 @@ func (r *PaymentRepository) UpdateStatus(ctx context.Context, id int64, status d
 		timestampField = "refunded_at"
 	}
 
-	query := `UPDATE payments SET status = $1`
+	query := `UPDATE payments SET status = $1, updated_at = CURRENT_TIMESTAMP`
 	if timestampField != "" {
 		query += ", " + timestampField + " = CURRENT_TIMESTAMP"
 	}
@@ -140,11 +140,10 @@ func (r *PaymentRepository) UpdateStatus(ctx context.Context, id int64, status d
 }
 
 func (r *PaymentRepository) MarkAsVerified(ctx context.Context, id int64) error {
-	query := `
-		UPDATE payments 
-		SET signature_verified = true, verified_at = CURRENT_TIMESTAMP 
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE payments
+		SET signature_verified = true, verified_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
 		WHERE id = $1
-	`
-	_, err := r.db.ExecContext(ctx, query, id)
+	`, id)
 	return err
 }

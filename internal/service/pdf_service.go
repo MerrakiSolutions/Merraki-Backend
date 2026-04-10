@@ -14,9 +14,7 @@ type PDFService struct {
 }
 
 func NewPDFService(storageService *StorageService) *PDFService {
-	return &PDFService{
-		storageService: storageService,
-	}
+	return &PDFService{storageService: storageService}
 }
 
 // ============================================================================
@@ -62,53 +60,45 @@ func (s *PDFService) GenerateOrderInvoice(ctx context.Context, order *domain.Ord
 
 	// Items Table Header
 	pdf.SetFont("Arial", "B", 10)
-	pdf.Cell(100, 7, "Item")
-	pdf.Cell(30, 7, "Quantity")
-	pdf.Cell(30, 7, "Price")
-	pdf.Cell(30, 7, "Total")
+	pdf.Cell(130, 7, "Item")
+	pdf.Cell(30, 7, "Price (USD)")
 	pdf.Ln(7)
 
-	// Items
+	// Items — qty removed, price is per-item flat
 	pdf.SetFont("Arial", "", 10)
 	for _, item := range items {
-		pdf.Cell(100, 6, item.TemplateName)
-		pdf.Cell(30, 6, fmt.Sprintf("%d", item.Quantity))
-		pdf.Cell(30, 6, fmt.Sprintf("%.2f", item.UnitPrice))
-		pdf.Cell(30, 6, fmt.Sprintf("%.2f", item.Subtotal))
+		pdf.Cell(130, 6, item.TemplateName)
+		pdf.Cell(30, 6, fmt.Sprintf("$%.2f", domain.CentsToUSD(item.PriceUSDCents)))
 		pdf.Ln(6)
 	}
-
 	pdf.Ln(5)
 
 	// Totals
-	pdf.SetFont("Arial", "B", 10)
+	pdf.SetFont("Arial", "", 10)
 	pdf.Cell(160, 6, "Subtotal:")
-	pdf.Cell(30, 6, fmt.Sprintf("%s %.2f", order.Subtotal))
+	pdf.Cell(30, 6, fmt.Sprintf("$%.2f", domain.CentsToUSD(order.SubtotalUSDCents)))
 	pdf.Ln(6)
 
-	if order.TaxAmount > 0 {
+	if order.TaxAmountUSDCents > 0 {
 		pdf.Cell(160, 6, "Tax:")
-		pdf.Cell(30, 6, fmt.Sprintf("%s %.2f",order.TaxAmount))
+		pdf.Cell(30, 6, fmt.Sprintf("$%.2f", domain.CentsToUSD(order.TaxAmountUSDCents)))
 		pdf.Ln(6)
 	}
 
-	if order.DiscountAmount > 0 {
+	if order.DiscountAmountUSDCents > 0 {
 		pdf.Cell(160, 6, "Discount:")
-		pdf.Cell(30, 6, fmt.Sprintf("-%s %.2f", order.DiscountAmount))
+		pdf.Cell(30, 6, fmt.Sprintf("-$%.2f", domain.CentsToUSD(order.DiscountAmountUSDCents)))
 		pdf.Ln(6)
 	}
 
 	pdf.SetFont("Arial", "B", 12)
-	pdf.Cell(160, 8, "Total:")
-	pdf.Cell(30, 8, fmt.Sprintf("%s %.2f", order.TotalAmount))
+	pdf.Cell(160, 8, "Total (USD):")
+	pdf.Cell(30, 8, fmt.Sprintf("$%.2f", domain.CentsToUSD(order.TotalAmountUSDCents)))
 
-	// Generate PDF bytes
 	var buf bytes.Buffer
-	err := pdf.Output(&buf)
-	if err != nil {
+	if err := pdf.Output(&buf); err != nil {
 		return nil, fmt.Errorf("failed to generate PDF: %w", err)
 	}
-
 	return buf.Bytes(), nil
 }
 
@@ -119,6 +109,5 @@ func (s *PDFService) GenerateOrderInvoice(ctx context.Context, order *domain.Ord
 func (s *PDFService) UploadInvoice(ctx context.Context, pdfBytes []byte, orderNumber string) (*UploadResult, error) {
 	filename := fmt.Sprintf("invoice_%s.pdf", orderNumber)
 	reader := bytes.NewReader(pdfBytes)
-	
 	return s.storageService.UploadFromReader(ctx, reader, filename, "invoices")
 }

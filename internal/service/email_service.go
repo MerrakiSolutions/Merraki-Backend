@@ -35,17 +35,15 @@ func NewEmailService(cfg *config.Config) *EmailService {
 // ============================================================================
 
 // SendOrderReceived — fires immediately after payment is verified.
-// Customer gets: order details, items, total, receipt PDF attached.
-// Subject: "Order Received — ORD-XXXXXXXX"
+// Customer gets order summary + receipt PDF. Admin still needs to approve.
 func (s *EmailService) SendOrderReceived(ctx context.Context, order *domain.Order, items []*domain.OrderItem, pdfBytes []byte) error {
 	subject := fmt.Sprintf("Order Received — %s", order.OrderNumber)
 
 	type itemRow struct {
-		Name     string
-		Version  string
-		Format   string
-		Quantity int
-		Price    string
+		Name    string
+		Version string
+		Format  string
+		Price   string
 	}
 
 	rows := make([]itemRow, len(items))
@@ -55,18 +53,17 @@ func (s *EmailService) SendOrderReceived(ctx context.Context, order *domain.Orde
 			format = *it.FileFormat
 		}
 		rows[i] = itemRow{
-			Name:     it.TemplateName,
-			Version:  it.TemplateVersion,
-			Format:   format,
-			Quantity: it.Quantity,
-			Price:    fmt.Sprintf("%s %.2f", it.UnitPrice),
+			Name:    it.TemplateName,
+			Version: it.TemplateVersion,
+			Format:  format,
+			Price:   fmt.Sprintf("$%.2f", domain.CentsToUSD(it.PriceUSDCents)),
 		}
 	}
 
 	data := map[string]interface{}{
 		"CustomerName": order.CustomerName,
 		"OrderNumber":  order.OrderNumber,
-		"TotalAmount":  fmt.Sprintf("%s %.2f", order.TotalAmount),
+		"TotalAmount":  fmt.Sprintf("$%.2f", domain.CentsToUSD(order.TotalAmountUSDCents)),
 		"Items":        rows,
 		"ItemCount":    len(items),
 		"Date":         order.CreatedAt.Format("January 2, 2006"),
@@ -85,7 +82,6 @@ func (s *EmailService) SendOrderReceived(ctx context.Context, order *domain.Orde
 	m.SetHeader("Subject", subject)
 	m.SetBody("text/html", htmlBody)
 
-	// Attach receipt PDF if provided
 	if len(pdfBytes) > 0 {
 		pdfCopy := make([]byte, len(pdfBytes))
 		copy(pdfCopy, pdfBytes)
@@ -116,14 +112,14 @@ func (s *EmailService) SendOrderReceived(ctx context.Context, order *domain.Orde
 	return nil
 }
 
-// SendOrderConfirmation — fires after admin approves. Contains download links.
+// SendOrderConfirmation — fires after admin approves.
 func (s *EmailService) SendOrderConfirmation(ctx context.Context, order *domain.Order, items []*domain.OrderItem) error {
 	subject := fmt.Sprintf("Order Confirmed — %s", order.OrderNumber)
 
 	data := map[string]interface{}{
 		"CustomerName": order.CustomerName,
 		"OrderNumber":  order.OrderNumber,
-		"TotalAmount":  fmt.Sprintf("%s %.2f", order.TotalAmount),
+		"TotalAmount":  fmt.Sprintf("$%.2f", domain.CentsToUSD(order.TotalAmountUSDCents)),
 		"ItemCount":    len(items),
 		"Items":        items,
 		"TrackingURL":  fmt.Sprintf("%s/order-tracking", s.cfg.Frontend.URL),
@@ -187,6 +183,27 @@ func (s *EmailService) SendOrderRejection(ctx context.Context, order *domain.Ord
 		return err
 	}
 	return s.sendEmail(order.CustomerEmail, subject, htmlBody)
+}
+
+// ============================================================================
+// ADMIN NOTIFICATIONS
+// ============================================================================
+
+func (s *EmailService) SendAdminOrderNotification(ctx context.Context, order *domain.Order) error {
+	subject := fmt.Sprintf("New Order Awaiting Review - %s", order.OrderNumber)
+	data := map[string]interface{}{
+		"OrderNumber":   order.OrderNumber,
+		"CustomerName":  order.CustomerName,
+		"CustomerEmail": order.CustomerEmail,
+		"TotalAmount":   fmt.Sprintf("$%.2f", domain.CentsToUSD(order.TotalAmountUSDCents)),
+		"AdminURL":      fmt.Sprintf("%s/admin/orders/%d", s.cfg.Frontend.AdminURL, order.ID),
+		"Date":          order.CreatedAt.Format("January 2, 2006 at 3:04 PM"),
+	}
+	htmlBody, err := s.renderTemplate("admin_order_notification", data)
+	if err != nil {
+		return err
+	}
+	return s.sendEmail(s.cfg.Email.FromEmail, subject, htmlBody)
 }
 
 // ============================================================================
@@ -254,27 +271,6 @@ func (s *EmailService) SendContactNotificationToAdmin(ctx context.Context, conta
 }
 
 // ============================================================================
-// ADMIN NOTIFICATIONS
-// ============================================================================
-
-func (s *EmailService) SendAdminOrderNotification(ctx context.Context, order *domain.Order) error {
-	subject := fmt.Sprintf("New Order Awaiting Review - %s", order.OrderNumber)
-	data := map[string]interface{}{
-		"OrderNumber":   order.OrderNumber,
-		"CustomerName":  order.CustomerName,
-		"CustomerEmail": order.CustomerEmail,
-		"TotalAmount":   fmt.Sprintf("%s %.2f", order.TotalAmount),
-		"AdminURL":      fmt.Sprintf("%s/admin/orders/%d", s.cfg.Frontend.AdminURL, order.ID),
-		"Date":          order.CreatedAt.Format("January 2, 2006 at 3:04 PM"),
-	}
-	htmlBody, err := s.renderTemplate("admin_order_notification", data)
-	if err != nil {
-		return err
-	}
-	return s.sendEmail(s.cfg.Email.FromEmail, subject, htmlBody)
-}
-
-// ============================================================================
 // CORE SEND
 // ============================================================================
 
@@ -290,7 +286,7 @@ func (s *EmailService) sendEmail(to, subject, htmlBody string) error {
 		return fmt.Errorf("failed to send email: %w", err)
 	}
 
-	logger.Info("Email sent successfully", zap.String("to", to), zap.String("subject", subject))
+	logger.Info("Email sent", zap.String("to", to), zap.String("subject", subject))
 	return nil
 }
 
@@ -333,8 +329,6 @@ func (s *EmailService) getEmailTemplate(name string) *template.Template {
 
 const baseEmailTemplate = `<!DOCTYPE html><html><body>{{.Content}}</body></html>`
 
-// orderReceivedTemplate — sent to customer immediately after payment verified.
-// Contains order summary + receipt. Admin still needs to approve before downloads.
 const orderReceivedTemplate = `
 <!DOCTYPE html>
 <html>
@@ -376,11 +370,9 @@ const orderReceivedTemplate = `
     <div style="text-align:center">
       <div class="badge">📋 {{.OrderNumber}}</div>
     </div>
-
     <div class="notice">
       ⏳ Your payment has been received. Our team will review and approve your order within <strong>2–4 business hours</strong>. You'll get another email with your download links once approved.
     </div>
-
     <p class="section-label">Order Summary</p>
     <div class="info-box">
       <div class="info-row"><span class="info-label">Order Number</span><span class="info-val">{{.OrderNumber}}</span></div>
@@ -388,13 +380,11 @@ const orderReceivedTemplate = `
       <div class="info-row"><span class="info-label">Status</span><span class="info-val"><span class="status-badge">Under Review</span></span></div>
       <div class="info-row" style="margin-bottom:0"><span class="info-label">Total Paid</span><span class="info-val" style="color:#3B7BF6;font-size:18px">{{.TotalAmount}}</span></div>
     </div>
-
     <p class="section-label">Items Purchased ({{.ItemCount}})</p>
     <table>
       <thead>
         <tr>
           <th>Template</th>
-          <th style="text-align:center">Qty</th>
           <th style="text-align:right">Price</th>
         </tr>
       </thead>
@@ -405,21 +395,18 @@ const orderReceivedTemplate = `
             <div style="font-weight:600;color:#0A0A0F">{{.Name}}</div>
             {{if .Format}}<div style="font-size:12px;color:#9898AE;margin-top:2px">{{.Format}}{{if .Version}} · v{{.Version}}{{end}}</div>{{end}}
           </td>
-          <td style="text-align:center">{{.Quantity}}</td>
           <td style="text-align:right;font-weight:600">{{.Price}}</td>
         </tr>
         {{end}}
         <tr class="total-row">
-          <td colspan="2">Total</td>
+          <td>Total</td>
           <td style="text-align:right;color:#3B7BF6">{{.TotalAmount}}</td>
         </tr>
       </tbody>
     </table>
-
     <div class="cta">
       <a href="{{.TrackingURL}}" class="btn">Track Your Order →</a>
     </div>
-
     <p style="font-size:13px;color:#9898AE;text-align:center;margin:0">
       Questions? Reply to this email or contact <a href="mailto:info@merrakisolutions.com" style="color:#3B7BF6">info@merrakisolutions.com</a>
     </p>
@@ -527,7 +514,7 @@ const newsletterWelcomeTemplate = `
   <div style="max-width:600px;margin:0 auto;padding:20px">
     <h2 style="color:#3B7BF6">Welcome to Merraki! 📧</h2>
     <p>Hi {{.Name}},</p>
-    <p>Thanks for subscribing to the Merraki newsletter. You'll receive new template releases, financial tips, and exclusive offers.</p>
+    <p>Thanks for subscribing to the Merraki newsletter. You'll receive new template releases, tips, and exclusive offers.</p>
     <p>— Merraki Team</p>
     <p style="font-size:12px;color:#999">© {{.Year}} Merraki Solutions</p>
   </div>

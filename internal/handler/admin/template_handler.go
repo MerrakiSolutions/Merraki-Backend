@@ -53,7 +53,6 @@ func (h *TemplateHandler) GetAllTemplates(c *fiber.Ctx) error {
 		limit = 20
 	}
 
-	// Build filters
 	filters := make(map[string]interface{})
 
 	if status := c.Query("status"); status != "" {
@@ -118,29 +117,28 @@ func (h *TemplateHandler) GetTemplateByID(c *fiber.Ctx) error {
 // CREATE TEMPLATE
 // ============================================================================
 
+// FIX: Replaced Price/SalePrice/IsOnSale/StockQuantity/IsUnlimitedStock/IsAvailable
+// with PriceUSDCents/SalePriceUSDCents which match domain.Template exactly.
 type CreateTemplateRequest struct {
-	Name             string                `json:"name" validate:"required"`
-	Slug             string                `json:"slug"`
-	Tagline          *string               `json:"tagline"`
-	Description      *string               `json:"description"`
-	CategoryID       *int64                `json:"category_id"`
-	Price            float64               `json:"price" validate:"required,min=0"`
-	SalePrice        *float64              `json:"sale_price"`
-	IsOnSale         bool                  `json:"is_on_sale"`
-	FileURL          *string               `json:"file_url"`
-	FileSizeMB       *float64              `json:"file_size_mb"`
-	FileFormat       *string               `json:"file_format"`
-	PreviewURL       *string               `json:"preview_url"`
-	StockQuantity    int                   `json:"stock_quantity"`
-	IsUnlimitedStock bool                  `json:"is_unlimited_stock"`
-	Status           domain.TemplateStatus `json:"status"`
-	IsAvailable      bool                  `json:"is_available"`
-	IsFeatured       bool                  `json:"is_featured"`
-	IsBestseller     bool                  `json:"is_bestseller"`
-	IsNew            bool                  `json:"is_new"`
-	MetaTitle        *string               `json:"meta_title"`
-	MetaDescription  *string               `json:"meta_description"`
-	CurrentVersion   string                `json:"current_version"`
+	Name              string                `json:"name" validate:"required"`
+	Slug              string                `json:"slug"`
+	Tagline           *string               `json:"tagline"`
+	Description       *string               `json:"description"`
+	CategoryID        *int64                `json:"category_id"`
+	PriceUSDCents     int64                 `json:"price_usd_cents" validate:"required,min=0"`
+	SalePriceUSDCents *int64                `json:"sale_price_usd_cents"`
+	FileURL           *string               `json:"file_url"`
+	FileSizeMB        *float64              `json:"file_size_mb"`
+	FileFormat        *string               `json:"file_format"`
+	PreviewURL        *string               `json:"preview_url"`
+	Status            domain.TemplateStatus `json:"status"`
+	IsFeatured        bool                  `json:"is_featured"`
+	IsBestseller      bool                  `json:"is_bestseller"`
+	IsNew             bool                  `json:"is_new"`
+	MetaTitle         *string               `json:"meta_title"`
+	MetaDescription   *string               `json:"meta_description"`
+	MetaKeywords      []string              `json:"meta_keywords"`
+	CurrentVersion    string                `json:"current_version"`
 }
 
 // POST /api/v1/admin/templates
@@ -152,37 +150,31 @@ func (h *TemplateHandler) CreateTemplate(c *fiber.Ctx) error {
 		})
 	}
 
-	// Get admin ID from context
 	adminID := c.Locals("admin_id").(int64)
 
-	// Build domain template
 	template := &domain.Template{
-		Name:             req.Name,
-		Slug:             req.Slug,
-		Tagline:          req.Tagline,
-		Description:      stringValue(req.Description),
-		CategoryID:       req.CategoryID,
-		Price:            req.Price,
-		SalePrice:        req.SalePrice,
-		IsOnSale:         req.IsOnSale,
-		FileURL:          req.FileURL,
-		FileSizeMB:       req.FileSizeMB,
-		FileFormat:       req.FileFormat,
-		PreviewURL:       req.PreviewURL,
-		StockQuantity:    req.StockQuantity,
-		IsUnlimitedStock: req.IsUnlimitedStock,
-		Status:           req.Status,
-		IsAvailable:      req.IsAvailable,
-		IsFeatured:       req.IsFeatured,
-		IsBestseller:     req.IsBestseller,
-		IsNew:            req.IsNew,
-		MetaTitle:        req.MetaTitle,
-		MetaDescription:  req.MetaDescription,
-		CurrentVersion:   req.CurrentVersion,
+		Name:              req.Name,
+		Slug:              req.Slug,
+		Tagline:           req.Tagline,
+		Description:       stringValue(req.Description),
+		CategoryID:        req.CategoryID,
+		PriceUSDCents:     req.PriceUSDCents,
+		SalePriceUSDCents: req.SalePriceUSDCents,
+		FileURL:           req.FileURL,
+		FileSizeMB:        req.FileSizeMB,
+		FileFormat:        req.FileFormat,
+		PreviewURL:        req.PreviewURL,
+		Status:            req.Status,
+		IsFeatured:        req.IsFeatured,
+		IsBestseller:      req.IsBestseller,
+		IsNew:             req.IsNew,
+		MetaTitle:         req.MetaTitle,
+		MetaDescription:   req.MetaDescription,
+		MetaKeywords:      req.MetaKeywords,
+		CurrentVersion:    req.CurrentVersion,
 	}
 
-	err := h.templateService.CreateTemplate(c.Context(), template, adminID)
-	if err != nil {
+	if err := h.templateService.CreateTemplate(c.Context(), template, adminID); err != nil {
 		logger.Error("Failed to create template", zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to create template",
@@ -218,33 +210,29 @@ func (h *TemplateHandler) UpdateTemplate(c *fiber.Ctx) error {
 	adminID := c.Locals("admin_id").(int64)
 
 	template := &domain.Template{
-		ID:               id,
-		Name:             req.Name,
-		Slug:             req.Slug,
-		Tagline:          req.Tagline,
-		Description:      stringValue(req.Description),
-		CategoryID:       req.CategoryID,
-		Price:            req.Price,
-		SalePrice:        req.SalePrice,
-		IsOnSale:         req.IsOnSale,
-		FileURL:          req.FileURL,
-		FileSizeMB:       req.FileSizeMB,
-		FileFormat:       req.FileFormat,
-		PreviewURL:       req.PreviewURL,
-		StockQuantity:    req.StockQuantity,
-		IsUnlimitedStock: req.IsUnlimitedStock,
-		Status:           req.Status,
-		IsAvailable:      req.IsAvailable,
-		IsFeatured:       req.IsFeatured,
-		IsBestseller:     req.IsBestseller,
-		IsNew:            req.IsNew,
-		MetaTitle:        req.MetaTitle,
-		MetaDescription:  req.MetaDescription,
-		CurrentVersion:   req.CurrentVersion,
+		ID:                id,
+		Name:              req.Name,
+		Slug:              req.Slug,
+		Tagline:           req.Tagline,
+		Description:       stringValue(req.Description),
+		CategoryID:        req.CategoryID,
+		PriceUSDCents:     req.PriceUSDCents,
+		SalePriceUSDCents: req.SalePriceUSDCents,
+		FileURL:           req.FileURL,
+		FileSizeMB:        req.FileSizeMB,
+		FileFormat:        req.FileFormat,
+		PreviewURL:        req.PreviewURL,
+		Status:            req.Status,
+		IsFeatured:        req.IsFeatured,
+		IsBestseller:      req.IsBestseller,
+		IsNew:             req.IsNew,
+		MetaTitle:         req.MetaTitle,
+		MetaDescription:   req.MetaDescription,
+		MetaKeywords:      req.MetaKeywords,
+		CurrentVersion:    req.CurrentVersion,
 	}
 
-	err = h.templateService.UpdateTemplate(c.Context(), template, adminID)
-	if err != nil {
+	if err = h.templateService.UpdateTemplate(c.Context(), template, adminID); err != nil {
 		logger.Error("Failed to update template", zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to update template",
@@ -279,8 +267,7 @@ func (h *TemplateHandler) PatchTemplate(c *fiber.Ctx) error {
 
 	adminID := c.Locals("admin_id").(int64)
 
-	err = h.templateService.PatchTemplate(c.Context(), id, updates, adminID)
-	if err != nil {
+	if err = h.templateService.PatchTemplate(c.Context(), id, updates, adminID); err != nil {
 		logger.Error("Failed to patch template", zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to update template",
@@ -309,8 +296,7 @@ func (h *TemplateHandler) DeleteTemplate(c *fiber.Ctx) error {
 
 	adminID := c.Locals("admin_id").(int64)
 
-	err = h.templateService.DeleteTemplate(c.Context(), id, adminID)
-	if err != nil {
+	if err = h.templateService.DeleteTemplate(c.Context(), id, adminID); err != nil {
 		logger.Error("Failed to delete template", zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to delete template",
@@ -337,7 +323,6 @@ func (h *TemplateHandler) UploadTemplateFile(c *fiber.Ctx) error {
 		})
 	}
 
-	// Get file from request
 	file, err := c.FormFile("file")
 	if err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
@@ -345,7 +330,6 @@ func (h *TemplateHandler) UploadTemplateFile(c *fiber.Ctx) error {
 		})
 	}
 
-	// Upload to storage
 	result, err := h.storageService.UploadFile(c.Context(), file, "templates")
 	if err != nil {
 		logger.Error("Failed to upload file", zap.Error(err))
@@ -354,7 +338,6 @@ func (h *TemplateHandler) UploadTemplateFile(c *fiber.Ctx) error {
 		})
 	}
 
-	// Update template
 	adminID := c.Locals("admin_id").(int64)
 	fileSizeMB := float64(result.Bytes) / (1024 * 1024)
 
@@ -364,9 +347,8 @@ func (h *TemplateHandler) UploadTemplateFile(c *fiber.Ctx) error {
 		"file_format":  result.Format,
 	}
 
-	err = h.templateService.PatchTemplate(c.Context(), id, updates, adminID)
-	if err != nil {
-		logger.Error("Failed to update template", zap.Error(err))
+	if err = h.templateService.PatchTemplate(c.Context(), id, updates, adminID); err != nil {
+		logger.Error("Failed to update template after upload", zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to update template",
 		})
@@ -418,8 +400,7 @@ func (h *TemplateHandler) AddImage(c *fiber.Ctx) error {
 		IsPrimary:    req.IsPrimary,
 	}
 
-	err = h.templateService.AddImage(c.Context(), image, adminID)
-	if err != nil {
+	if err = h.templateService.AddImage(c.Context(), image, adminID); err != nil {
 		logger.Error("Failed to add image", zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to add image",
@@ -447,8 +428,7 @@ func (h *TemplateHandler) DeleteImage(c *fiber.Ctx) error {
 
 	adminID := c.Locals("admin_id").(int64)
 
-	err = h.templateService.DeleteImage(c.Context(), id, adminID)
-	if err != nil {
+	if err = h.templateService.DeleteImage(c.Context(), id, adminID); err != nil {
 		logger.Error("Failed to delete image", zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to delete image",
@@ -497,8 +477,7 @@ func (h *TemplateHandler) AddFeature(c *fiber.Ctx) error {
 		DisplayOrder: req.DisplayOrder,
 	}
 
-	err = h.templateService.AddFeature(c.Context(), feature, adminID)
-	if err != nil {
+	if err = h.templateService.AddFeature(c.Context(), feature, adminID); err != nil {
 		logger.Error("Failed to add feature", zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to add feature",
@@ -526,8 +505,7 @@ func (h *TemplateHandler) DeleteFeature(c *fiber.Ctx) error {
 
 	adminID := c.Locals("admin_id").(int64)
 
-	err = h.templateService.DeleteFeature(c.Context(), id, adminID)
-	if err != nil {
+	if err = h.templateService.DeleteFeature(c.Context(), id, adminID); err != nil {
 		logger.Error("Failed to delete feature", zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to delete feature",
@@ -567,8 +545,7 @@ func (h *TemplateHandler) UpdateTags(c *fiber.Ctx) error {
 
 	adminID := c.Locals("admin_id").(int64)
 
-	err = h.templateService.UpdateTags(c.Context(), id, req.Tags, adminID)
-	if err != nil {
+	if err = h.templateService.UpdateTags(c.Context(), id, req.Tags, adminID); err != nil {
 		logger.Error("Failed to update tags", zap.Error(err))
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to update tags",

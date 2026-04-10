@@ -36,7 +36,7 @@ func (s *TemplateService) CreateTemplate(ctx context.Context, template *domain.T
 		template.Slug = slug.Make(template.Name)
 	}
 
-	// Check if slug exists
+	// Check slug uniqueness
 	existing, err := s.templateRepo.FindBySlug(ctx, template.Slug)
 	if err != nil {
 		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to check slug", 500)
@@ -59,13 +59,12 @@ func (s *TemplateService) CreateTemplate(ctx context.Context, template *domain.T
 		}
 	}
 
-	// Set published_at if available
-	if template.IsAvailable && template.PublishedAt == nil {
+	// Set published_at when creating as active
+	if template.Status == domain.TemplateStatusActive && template.PublishedAt == nil {
 		now := time.Now()
 		template.PublishedAt = &now
 	}
 
-	// Initialize arrays
 	if template.MetaKeywords == nil {
 		template.MetaKeywords = pq.StringArray{}
 	}
@@ -182,13 +181,14 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, template *domain.T
 		}
 	}
 
-	// Set published_at if becoming available
-	if template.IsAvailable && !existing.IsAvailable && template.PublishedAt == nil {
+	// Set published_at when first becoming active
+	if template.Status == domain.TemplateStatusActive &&
+		existing.Status != domain.TemplateStatusActive &&
+		template.PublishedAt == nil {
 		now := time.Now()
 		template.PublishedAt = &now
 	}
 
-	// Initialize arrays
 	if template.MetaKeywords == nil {
 		template.MetaKeywords = pq.StringArray{}
 	}
@@ -220,8 +220,10 @@ func (s *TemplateService) PatchTemplate(ctx context.Context, id int64, updates m
 		return apperrors.ErrNotFound
 	}
 
-	// Handle availability change
-	if isAvailable, ok := updates["is_available"].(bool); ok && isAvailable && !existing.IsAvailable {
+	// Set published_at when first activating via patch
+	if status, ok := updates["status"].(domain.TemplateStatus); ok &&
+		status == domain.TemplateStatusActive &&
+		existing.Status != domain.TemplateStatusActive {
 		if _, hasPublishedAt := updates["published_at"]; !hasPublishedAt {
 			updates["published_at"] = time.Now()
 		}
@@ -281,7 +283,6 @@ func (s *TemplateService) GetTemplatesByCategory(ctx context.Context, categorySl
 	if category == nil {
 		return nil, 0, apperrors.ErrNotFound
 	}
-
 	return s.templateRepo.GetByCategory(ctx, category.ID, limit, offset)
 }
 
@@ -301,19 +302,10 @@ func (s *TemplateService) GetNewTemplates(ctx context.Context, limit int) ([]*do
 	return s.templateRepo.GetNew(ctx, limit)
 }
 
-// Stock management
-func (s *TemplateService) UpdateStock(ctx context.Context, id int64, quantity int, updatedBy int64) error {
-	updates := map[string]interface{}{
-		"stock_quantity": quantity,
-	}
-	return s.PatchTemplate(ctx, id, updates, updatedBy)
-}
-
-func (s *TemplateService) DecrementStock(ctx context.Context, id int64, quantity int) error {
-	return s.templateRepo.DecrementStock(ctx, id, quantity)
-}
-
+// ============================================================================
 // Images
+// ============================================================================
+
 func (s *TemplateService) AddImage(ctx context.Context, image *domain.TemplateImage, createdBy int64) error {
 	if err := s.templateRepo.CreateImage(ctx, image); err != nil {
 		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to add image", 500)
@@ -349,7 +341,10 @@ func (s *TemplateService) GetImages(ctx context.Context, templateID int64) ([]*d
 	return s.templateRepo.GetImages(ctx, templateID)
 }
 
+// ============================================================================
 // Features
+// ============================================================================
+
 func (s *TemplateService) AddFeature(ctx context.Context, feature *domain.TemplateFeature, createdBy int64) error {
 	if err := s.templateRepo.CreateFeature(ctx, feature); err != nil {
 		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to add feature", 500)
@@ -385,7 +380,10 @@ func (s *TemplateService) GetFeatures(ctx context.Context, templateID int64) ([]
 	return s.templateRepo.GetFeatures(ctx, templateID)
 }
 
+// ============================================================================
 // Tags
+// ============================================================================
+
 func (s *TemplateService) UpdateTags(ctx context.Context, templateID int64, tags []string, updatedBy int64) error {
 	if err := s.templateRepo.ReplaceAllTags(ctx, templateID, tags); err != nil {
 		return apperrors.Wrap(err, "DATABASE_ERROR", "Failed to update tags", 500)
@@ -404,9 +402,4 @@ func (s *TemplateService) UpdateTags(ctx context.Context, templateID int64, tags
 
 func (s *TemplateService) GetTags(ctx context.Context, templateID int64) ([]string, error) {
 	return s.templateRepo.GetTags(ctx, templateID)
-}
-
-// Analytics
-func (s *TemplateService) TrackEvent(ctx context.Context, event *domain.TemplateAnalytics) error {
-	return s.templateRepo.CreateAnalyticsEvent(ctx, event)
 }
