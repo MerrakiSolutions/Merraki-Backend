@@ -10,14 +10,14 @@ import (
 // ============================================================================
 
 type PublicHandlers struct {
-	Template *publicHandlers.TemplateHandler
-	Order    *publicHandlers.OrderHandler
-	Checkout *publicHandlers.CheckoutHandler
-	Download *publicHandlers.DownloadHandler
+	Template   *publicHandlers.TemplateHandler
+	Order      *publicHandlers.OrderHandler
+	Checkout   *publicHandlers.CheckoutHandler
+	Download   *publicHandlers.DownloadHandler
 	Blog       *publicHandlers.BlogHandler
 	Newsletter *publicHandlers.NewsletterHandler
 	Contact    *publicHandlers.ContactHandler
-	Utility    *publicHandlers.UtilityHandler 
+	Utility    *publicHandlers.UtilityHandler
 }
 
 // ============================================================================
@@ -33,12 +33,14 @@ func SetupPublicRoutes(api fiber.Router, handlers *PublicHandlers) {
 	templates := public.Group("/templates")
 	{
 		templates.Get("/", handlers.Template.GetAllTemplates)
+		// FIX: static paths before /:slug
 		templates.Get("/search", handlers.Template.SearchTemplates)
 		templates.Get("/featured", handlers.Template.GetFeaturedTemplates)
 		templates.Get("/bestsellers", handlers.Template.GetBestsellers)
 		templates.Get("/new", handlers.Template.GetNewTemplates)
-		templates.Get("/:slug", handlers.Template.GetTemplateBySlug)
 		templates.Get("/by-id/:id", handlers.Template.GetTemplateByID)
+		// parameterized last
+		templates.Get("/:slug", handlers.Template.GetTemplateBySlug)
 	}
 
 	// ========================================================================
@@ -82,9 +84,11 @@ func SetupPublicRoutes(api fiber.Router, handlers *PublicHandlers) {
 	// ========================================================================
 	orders := public.Group("/orders")
 	{
+		// FIX: static paths before /:id
 		orders.Get("/lookup", handlers.Order.LookupOrder)
-		orders.Get("/:id", handlers.Order.GetOrderByID)
 		orders.Get("/by-email", handlers.Order.GetOrdersByEmail)
+		// parameterized last
+		orders.Get("/:id", handlers.Order.GetOrderByID)
 	}
 
 	// ========================================================================
@@ -92,17 +96,19 @@ func SetupPublicRoutes(api fiber.Router, handlers *PublicHandlers) {
 	// ========================================================================
 	download := public.Group("/download")
 	{
-		download.Get("/", handlers.Download.InitiateDownload)
-		download.Post("/info", handlers.Download.GetDownloadInfo)
+		// FIX: static paths before parameterized (by-email before any future /:id)
 		download.Get("/by-email", handlers.Download.GetDownloadsByEmail)
+		download.Post("/info", handlers.Download.GetDownloadInfo)
+		download.Get("/", handlers.Download.InitiateDownload)
 	}
 
-
-	// Blog
+	// ========================================================================
+	// BLOG
+	// ========================================================================
 	blog := public.Group("/blog")
 	{
 		blog.Get("/posts", handlers.Blog.GetAllPosts)
-		blog.Get("/posts/search", handlers.Blog.SearchPosts)
+		blog.Get("/posts/search", handlers.Blog.SearchPosts) // static before /:slug ✅
 		blog.Get("/posts/:slug", handlers.Blog.GetPostBySlug)
 		blog.Get("/authors", handlers.Blog.GetAllAuthors)
 		blog.Get("/authors/:slug", handlers.Blog.GetAuthorBySlug)
@@ -110,7 +116,9 @@ func SetupPublicRoutes(api fiber.Router, handlers *PublicHandlers) {
 		blog.Get("/categories/:slug", handlers.Blog.GetCategoryBySlug)
 	}
 
-	// Newsletter
+	// ========================================================================
+	// NEWSLETTER
+	// ========================================================================
 	newsletter := public.Group("/newsletter")
 	{
 		newsletter.Post("/subscribe", handlers.Newsletter.Subscribe)
@@ -118,6 +126,8 @@ func SetupPublicRoutes(api fiber.Router, handlers *PublicHandlers) {
 		newsletter.Get("/unsubscribe", handlers.Newsletter.UnsubscribeGET)
 	}
 
-	// Contact
+	// ========================================================================
+	// CONTACT
+	// ========================================================================
 	public.Post("/contact", handlers.Contact.Create)
 }
