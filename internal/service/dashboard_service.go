@@ -37,15 +37,16 @@ func (s *DashboardService) GetStats(ctx context.Context) (map[string]interface{}
 	result := make(map[string]interface{})
 
 	// ========================================================================
-	// ORDERS & REVENUE (NEW MARKETPLACE SCHEMA)
+	// ORDERS & REVENUE
+	// domain.Order: total_amount_usd_cents int64 — divide by 100 for USD display
 	// ========================================================================
-	
+
 	var totalOrders int
-	var totalRevenue float64
+	var totalRevenueCents int64
 	_ = s.db.QueryRow(ctx, `
-		SELECT COUNT(*), COALESCE(SUM(total_amount), 0)
+		SELECT COUNT(*), COALESCE(SUM(total_amount_usd_cents), 0)
 		FROM orders
-	`).Scan(&totalOrders, &totalRevenue)
+	`).Scan(&totalOrders, &totalRevenueCents)
 
 	// Pending orders (awaiting admin approval)
 	var pendingOrders int
@@ -54,22 +55,27 @@ func (s *DashboardService) GetStats(ctx context.Context) (map[string]interface{}
 		WHERE status = 'admin_review'
 	`).Scan(&pendingOrders)
 
-	// Completed today (approved orders)
+	// Orders approved today — status column, approved_at doesn't exist.
+	// Use order_state_transitions: find transitions to 'approved' today.
 	var completedToday int
 	_ = s.db.QueryRow(ctx, `
-		SELECT COUNT(*) FROM orders
-		WHERE DATE(approved_at) = CURRENT_DATE
+		SELECT COUNT(DISTINCT order_id)
+		FROM order_state_transitions
+		WHERE to_status = 'approved'
+		  AND DATE(created_at) = CURRENT_DATE
 	`).Scan(&completedToday)
 
 	result["totalOrders"] = totalOrders
 	result["pendingOrders"] = pendingOrders
-	result["totalRevenue"] = totalRevenue
+	result["completedToday"] = completedToday
+	// Revenue in USD float for frontend display
+	result["totalRevenue"] = float64(totalRevenueCents) / 100.0
 	result["revenueGrowth"] = 0.0
 
 	// ========================================================================
-	// ORDERS BY STATUS (Pie Chart)
+	// ORDERS BY STATUS (Pie / Donut Chart)
 	// ========================================================================
-	
+
 	statusRows, err := s.db.Query(ctx, `
 		SELECT status, COUNT(*) AS count
 		FROM orders
@@ -97,13 +103,14 @@ func (s *DashboardService) GetStats(ctx context.Context) (map[string]interface{}
 
 	// ========================================================================
 	// MONTHLY REVENUE - Last 12 months (Composed Chart)
+	// total_amount_usd_cents / 100 → USD float
 	// ========================================================================
-	
+
 	monthRows, err := s.db.Query(ctx, `
 		SELECT
-			TO_CHAR(DATE_TRUNC('month', created_at), 'Mon ''YY') AS month,
-			COALESCE(SUM(total_amount), 0)::float                AS revenue,
-			COUNT(*)::int                                         AS orders
+			TO_CHAR(DATE_TRUNC('month', created_at), 'Mon ''YY')            AS month,
+			COALESCE(SUM(total_amount_usd_cents), 0)::float / 100.0         AS revenue,
+			COUNT(*)::int                                                    AS orders
 		FROM orders
 		WHERE created_at >= NOW() - INTERVAL '12 months'
 		GROUP BY DATE_TRUNC('month', created_at)
@@ -133,11 +140,11 @@ func (s *DashboardService) GetStats(ctx context.Context) (map[string]interface{}
 	// ========================================================================
 	// DAILY REVENUE HEATMAP - Last 84 days
 	// ========================================================================
-	
+
 	dayRows, err := s.db.Query(ctx, `
 		SELECT
-			TO_CHAR(d.day, 'YYYY-MM-DD')             AS date,
-			COALESCE(SUM(o.total_amount), 0)::float  AS value
+			TO_CHAR(d.day, 'YYYY-MM-DD')                                       AS date,
+			COALESCE(SUM(o.total_amount_usd_cents), 0)::float / 100.0          AS value
 		FROM generate_series(
 			CURRENT_DATE - INTERVAL '83 days',
 			CURRENT_DATE,
@@ -167,9 +174,9 @@ func (s *DashboardService) GetStats(ctx context.Context) (map[string]interface{}
 	result["dailyRevenue"] = dailyRevenue
 
 	// ========================================================================
-	// BLOG STATISTICS (EXISTING - KEEP)
+	// BLOG STATISTICS
 	// ========================================================================
-	
+
 	var totalPosts, publishedPosts int
 	_ = s.db.QueryRow(ctx, `SELECT COUNT(*) FROM blog_posts`).Scan(&totalPosts)
 	_ = s.db.QueryRow(ctx, `
@@ -179,21 +186,23 @@ func (s *DashboardService) GetStats(ctx context.Context) (map[string]interface{}
 	result["publishedBlogPosts"] = publishedPosts
 
 	// ========================================================================
-	// TEMPLATES (NEW MARKETPLACE SCHEMA)
+	// TEMPLATES
+	// domain.Template: status TemplateStatus — no is_available column.
+	// IsAvailable() is derived: status == 'active'
 	// ========================================================================
-	
+
 	var totalTemplates, activeTemplates int
 	_ = s.db.QueryRow(ctx, `SELECT COUNT(*) FROM templates`).Scan(&totalTemplates)
 	_ = s.db.QueryRow(ctx, `
-		SELECT COUNT(*) FROM templates WHERE status = 'active' AND is_available = true
+		SELECT COUNT(*) FROM templates WHERE status = 'active'
 	`).Scan(&activeTemplates)
 	result["totalTemplates"] = totalTemplates
 	result["activeTemplates"] = activeTemplates
 
 	// ========================================================================
-	// NEWSLETTER (EXISTING - KEEP)
+	// NEWSLETTER
 	// ========================================================================
-	
+
 	var totalSubs, activeSubs int
 	_ = s.db.QueryRow(ctx, `SELECT COUNT(*) FROM newsletter_subscribers`).Scan(&totalSubs)
 	_ = s.db.QueryRow(ctx, `
@@ -205,9 +214,9 @@ func (s *DashboardService) GetStats(ctx context.Context) (map[string]interface{}
 	}
 
 	// ========================================================================
-	// CONTACTS (EXISTING - KEEP)
+	// CONTACTS
 	// ========================================================================
-	
+
 	var totalContacts, newContacts int
 	_ = s.db.QueryRow(ctx, `SELECT COUNT(*) FROM contacts`).Scan(&totalContacts)
 	_ = s.db.QueryRow(ctx, `
@@ -221,7 +230,7 @@ func (s *DashboardService) GetStats(ctx context.Context) (map[string]interface{}
 	// ========================================================================
 	// ADMIN USERS
 	// ========================================================================
-	
+
 	var totalAdmins, activeAdmins int
 	_ = s.db.QueryRow(ctx, `SELECT COUNT(*) FROM admins`).Scan(&totalAdmins)
 	_ = s.db.QueryRow(ctx, `
@@ -232,29 +241,29 @@ func (s *DashboardService) GetStats(ctx context.Context) (map[string]interface{}
 	result["userGrowth"] = 0.0
 
 	// ========================================================================
-	// CONVERSION FUNNEL (Simplified)
+	// CONVERSION FUNNEL
 	// ========================================================================
-	
+
 	var approvedOrders int
 	_ = s.db.QueryRow(ctx, `
 		SELECT COUNT(*) FROM orders WHERE status = 'approved'
 	`).Scan(&approvedOrders)
 
 	result["conversionFunnel"] = map[string]interface{}{
-		"visitors":      totalSubs,
-		"signups":       totalSubs,
-		"testCompleted": 0, // Remove test_submissions dependency
-		"purchased":     approvedOrders,
+		"visitors":  totalSubs,
+		"signups":   totalSubs,
+		"purchased": approvedOrders,
 	}
 
 	// ========================================================================
 	// SPARKLINES - Last 7 days per metric
+	// Revenue sparkline uses cents → convert to int (dollars truncated)
 	// ========================================================================
-	
+
 	result["sparklines"] = map[string]interface{}{
 		"users":     s.sparklineCounts(ctx, "admins", "created_at", "", 7),
 		"orders":    s.sparklineCounts(ctx, "orders", "created_at", "", 7),
-		"revenue":   s.sparklineSum(ctx, "orders", "total_amount", "created_at", 7),
+		"revenue":   s.sparklineSumCents(ctx, "orders", "total_amount_usd_cents", "created_at", 7),
 		"pending":   s.sparklineCounts(ctx, "orders", "created_at", "status = 'admin_review'", 7),
 		"posts":     s.sparklineCounts(ctx, "blog_posts", "created_at", "", 7),
 		"templates": s.sparklineCounts(ctx, "templates", "created_at", "", 7),
@@ -313,7 +322,7 @@ func (s *DashboardService) GetActivity(ctx context.Context) ([]ActivityLog, erro
 // PRIVATE HELPERS - Sparkline data generators
 // ============================================================================
 
-// sparklineCounts returns []int of daily row counts for the last N days
+// sparklineCounts returns []int of daily row counts for the last N days.
 func (s *DashboardService) sparklineCounts(
 	ctx context.Context, table, timeCol, whereClause string, days int,
 ) []int {
@@ -336,12 +345,13 @@ func (s *DashboardService) sparklineCounts(
 	return s.scanInts(ctx, q, days)
 }
 
-// sparklineSum returns []int of daily column sums for the last N days
-func (s *DashboardService) sparklineSum(
+// sparklineSumCents returns []int of daily USD-cent column sums converted to
+// whole dollars, suitable for sparkline display.
+func (s *DashboardService) sparklineSumCents(
 	ctx context.Context, table, sumCol, timeCol string, days int,
 ) []int {
 	q := fmt.Sprintf(`
-		SELECT COALESCE(SUM(t.%s), 0)::int
+		SELECT (COALESCE(SUM(t.%s), 0) / 100)::int
 		FROM generate_series(
 			CURRENT_DATE - INTERVAL '%d days',
 			CURRENT_DATE,
