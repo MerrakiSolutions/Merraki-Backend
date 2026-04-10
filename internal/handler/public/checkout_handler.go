@@ -150,9 +150,9 @@ func (h *CheckoutHandler) InitiatePayment(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"razorpay_order_id": payment.GatewayOrderID,
-		// AmountUSDCents lives on the payment — no need for a second DB round
-		// trip or a domain helper call on a separately fetched order object.
-		"amount":       domain.CentsToUSD(payment.AmountUSDCents),
+		// Send raw cents — Razorpay SDK expects the smallest currency unit.
+		// No float conversion, no rounding risk (e.g. $10.99 stays 1099).
+		"amount_cents": payment.AmountUSDCents,
 		"key_id":       h.paymentService.GetKeyID(),
 		"order_number": order.Order.OrderNumber,
 	})
