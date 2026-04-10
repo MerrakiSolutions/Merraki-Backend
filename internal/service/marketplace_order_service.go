@@ -183,8 +183,8 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *CreateOrderRequest)
 	}
 
 	s.logActivity(ctx, "order_created", order.ID, 0, map[string]interface{}{
-		"order_number":      order.OrderNumber,
-		"total_usd_cents":   order.TotalAmountUSDCents,
+		"order_number":    order.OrderNumber,
+		"total_usd_cents": order.TotalAmountUSDCents,
 	})
 
 	logger.Info("Order created",
@@ -230,7 +230,7 @@ func (s *OrderService) InitiatePayment(ctx context.Context, orderID int64) (*dom
 	// Since we're USD-only, amount is in cents
 	razorpayOrder, err := s.paymentService.CreateOrder(ctx, &CreateRazorpayOrderRequest{
 		AmountUSDCents: order.TotalAmountUSDCents,
-		Receipt: order.OrderNumber,
+		Receipt:        order.OrderNumber,
 		Notes: map[string]string{
 			"order_id":       fmt.Sprintf("%d", order.ID),
 			"order_number":   order.OrderNumber,
@@ -406,6 +406,131 @@ func (s *OrderService) VerifyPayment(ctx context.Context, req *VerifyPaymentRequ
 }
 
 // ============================================================================
+// WEBHOOK HANDLER - Razorpay payment events
+// ============================================================================
+
+// MarkPaymentCaptured
+
+func (s *OrderService) MarkPaymentCaptured(
+	ctx context.Context,
+	gatewayOrderID, gatewayPaymentID string,
+) error {
+
+	// 1. Find payment by gateway order
+	payment, err := s.paymentRepo.FindByGatewayOrderID(ctx, gatewayOrderID)
+	if err != nil || payment == nil {
+		return fmt.Errorf("payment record not found for gateway order: %s", gatewayOrderID)
+	}
+
+	// 2. IDEMPOTENCY GUARD (CRITICAL)
+	if payment.Status == domain.PaymentStatusCaptured {
+		logger.Info("Duplicate webhook ignored",
+			zap.String("gateway_order_id", gatewayOrderID),
+			zap.String("gateway_payment_id", gatewayPaymentID),
+		)
+		return nil
+	}
+
+	// 3. Update payment
+	payment.Status = domain.PaymentStatusCaptured
+	now := time.Now()
+	payment.CapturedAt = &now
+	payment.GatewayPaymentID = &gatewayPaymentID
+
+	if err := s.paymentRepo.Update(ctx, payment); err != nil {
+		return err
+	}
+
+	// 4. Load order
+	order, err := s.orderRepo.FindByID(ctx, payment.OrderID)
+	if err != nil || order == nil {
+		return fmt.Errorf("order not found for payment: %d", payment.OrderID)
+	}
+
+	// 5. Only update if not already finalized
+	if order.Status == domain.OrderStatusPending ||
+		order.Status == domain.OrderStatusPaymentInitiated {
+
+		order.Status = domain.OrderStatusPaid // ✅ FIXED
+		order.GatewayPaymentID = &gatewayPaymentID
+
+		if err := s.orderRepo.Update(ctx, order); err != nil {
+			return err
+		}
+
+		s.logActivity(ctx, "payment_captured", order.ID, 0, map[string]interface{}{
+			"payment_id": gatewayPaymentID,
+		})
+
+		logger.Info("Payment captured via webhook",
+			zap.String("order_number", order.OrderNumber),
+			zap.String("payment_id", gatewayPaymentID),
+		)
+	}
+
+	return nil
+}
+
+func (s *OrderService) MarkPaymentFailed(
+	ctx context.Context,
+	gatewayOrderID string,
+) error {
+
+	// 1. Find payment by gateway order ID
+	payment, err := s.paymentRepo.FindByGatewayOrderID(ctx, gatewayOrderID)
+	if err != nil || payment == nil {
+		return fmt.Errorf("payment record not found for gateway order: %s", gatewayOrderID)
+	}
+
+	// 2. IDEMPOTENCY GUARD (avoid duplicate webhook processing)
+	if payment.Status == domain.PaymentStatusFailed {
+		logger.Info("Duplicate payment.failed webhook ignored",
+			zap.String("gateway_order_id", gatewayOrderID),
+		)
+		return nil
+	}
+
+	// 3. Update payment status
+	payment.Status = domain.PaymentStatusFailed
+	now := time.Now()
+	payment.FailedAt = &now // make sure this field exists in domain
+	payment.UpdatedAt = now // if you track updates
+
+	if err := s.paymentRepo.Update(ctx, payment); err != nil {
+		return err
+	}
+
+	// 4. Load order
+	order, err := s.orderRepo.FindByID(ctx, payment.OrderID)
+	if err != nil || order == nil {
+		return fmt.Errorf("order not found for payment: %d", payment.OrderID)
+	}
+
+	// 5. Update order ONLY if still in active payment state
+	if order.Status == domain.OrderStatusPending ||
+		order.Status == domain.OrderStatusPaymentInitiated {
+
+		order.Status = domain.OrderStatusFailed
+		order.UpdatedAt = now
+
+		if err := s.orderRepo.Update(ctx, order); err != nil {
+			return err
+		}
+
+		s.logActivity(ctx, "payment_failed", order.ID, 0, map[string]interface{}{
+			"gateway_order_id": gatewayOrderID,
+		})
+
+		logger.Warn("Payment failed via webhook",
+			zap.String("order_number", order.OrderNumber),
+			zap.String("gateway_order_id", gatewayOrderID),
+		)
+	}
+
+	return nil
+}
+
+// ============================================================================
 // ADMIN ACTIONS
 // ============================================================================
 
@@ -475,7 +600,7 @@ func (s *OrderService) RejectOrder(ctx context.Context, orderID int64, adminID i
 }
 
 func (s *OrderService) MarkOrderAsPaid(ctx context.Context, orderID int64, adminID int64, gatewayOrderID string) error {
-    if err := s.orderRepo.MarkAsPaid(ctx, orderID, adminID, gatewayOrderID); err != nil {
+	if err := s.orderRepo.MarkAsPaid(ctx, orderID, adminID, gatewayOrderID); err != nil {
 		return err
 	}
 

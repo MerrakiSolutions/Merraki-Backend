@@ -193,59 +193,59 @@ type razorpayWebhookBody struct {
 	CreatedAt int64                  `json:"created_at"`
 }
 
-func (s *PaymentService) ProcessWebhook(ctx context.Context, payload []byte, signature, sourceIP, userAgent string) error {
-	// 1. Verify signature.
+type WebhookResult struct {
+	Event             string
+	GatewayOrderID    string
+	GatewayPaymentID  string
+	SignatureValid    bool
+}
+
+func (s *PaymentService) ProcessWebhook(
+	ctx context.Context,
+	payload []byte,
+	signature, sourceIP, userAgent string,
+) (*WebhookResult, error) {
+
+	// 1. Verify signature
 	isValid := s.VerifyWebhookSignature(payload, signature)
 
-	// 2. Parse the webhook body.
+	// 2. Parse webhook
 	var event razorpayWebhookBody
 	if err := json.Unmarshal(payload, &event); err != nil {
-		return fmt.Errorf("failed to parse webhook: %w", err)
+		return nil, fmt.Errorf("failed to parse webhook: %w", err)
 	}
 
-	// 3. Extract IDs from the correct nested path:
-	//      payload → "payment" → "entity" → { "id", "order_id" }
-	//    The old code looked at payload["order"]["id"] which does not exist
-	//    on payment.* events and always yielded an empty string.
 	gatewayOrderID, gatewayPaymentID := extractWebhookIDs(event.Payload)
 
-	// 4. Convert raw bytes to domain.JSONMap for the DB column.
+	// 3. Convert payload
 	var payloadMap domain.JSONMap
 	if err := json.Unmarshal(payload, &payloadMap); err != nil {
-		return fmt.Errorf("failed to convert payload to JSONMap: %w", err)
+		return nil, fmt.Errorf("failed to convert payload: %w", err)
 	}
 
-	// 5. Persist webhook record — always, even on bad signature, for audit.
+	// 4. Save webhook (audit)
 	webhook := &domain.PaymentWebhook{
 		EventType:         event.Event,
 		GatewayOrderID:    nullableStr(gatewayOrderID),
 		GatewayPaymentID:  nullableStr(gatewayPaymentID),
 		Payload:           payloadMap,
 		Signature:         &signature,
-		SignatureVerified:  isValid,
+		SignatureVerified: isValid,
 		SourceIP:          &sourceIP,
 		UserAgent:         &userAgent,
 		MaxRetries:        3,
 	}
 
 	if err := s.webhookRepo.Create(ctx, webhook); err != nil {
-		logger.Error("Failed to store webhook", zap.Error(err))
-		return err
+		return nil, err
 	}
 
-	logger.Info("Webhook received",
-		zap.String("event", event.Event),
-		zap.String("gateway_order_id", gatewayOrderID),
-		zap.String("gateway_payment_id", gatewayPaymentID),
-		zap.Bool("signature_valid", isValid),
-	)
-
-	// 6. Reject after persisting so Razorpay retries and we keep the audit trail.
-	if !isValid {
-		return fmt.Errorf("invalid webhook signature")
-	}
-
-	return nil
+	return &WebhookResult{
+		Event:            event.Event,
+		GatewayOrderID:   gatewayOrderID,
+		GatewayPaymentID: gatewayPaymentID,
+		SignatureValid:   isValid,
+	}, nil
 }
 
 // extractWebhookIDs navigates the actual Razorpay webhook payload structure.
@@ -284,7 +284,7 @@ func extractWebhookIDs(payload map[string]interface{}) (gatewayOrderID, gatewayP
 type RazorpayPayment struct {
 	ID        string                 `json:"id"`
 	Entity    string                 `json:"entity"`
-	Amount    int64                  `json:"amount"`   // cents — use directly, never ×100
+	Amount    int64                  `json:"amount"` // cents — use directly, never ×100
 	Currency  string                 `json:"currency"`
 	Status    string                 `json:"status"`
 	OrderID   string                 `json:"order_id"`
@@ -292,8 +292,8 @@ type RazorpayPayment struct {
 	Captured  bool                   `json:"captured"`
 	Email     string                 `json:"email"`
 	Contact   string                 `json:"contact"`
-	Fee       int64                  `json:"fee"`      // cents
-	Tax       int64                  `json:"tax"`      // cents
+	Fee       int64                  `json:"fee"` // cents
+	Tax       int64                  `json:"tax"` // cents
 	ErrorCode string                 `json:"error_code,omitempty"`
 	ErrorDesc string                 `json:"error_description,omitempty"`
 	Card      map[string]interface{} `json:"card,omitempty"`
