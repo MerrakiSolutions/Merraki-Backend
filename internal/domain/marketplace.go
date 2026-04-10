@@ -209,41 +209,43 @@ type TemplateAnalytics struct {
 // ============================================================================
 
 type Order struct {
-	ID                     int64       `json:"id" db:"id"`
-	OrderNumber            string      `json:"order_number" db:"order_number"`
-	CustomerEmail          string      `json:"customer_email" db:"customer_email"`
-	CustomerName           string      `json:"customer_name" db:"customer_name"`
-	CustomerPhone          *string     `json:"customer_phone,omitempty" db:"customer_phone"`
-	CustomerIP             *string     `json:"customer_ip,omitempty" db:"customer_ip"`
-	CustomerUserAgent      *string     `json:"customer_user_agent,omitempty" db:"customer_user_agent"`
-	CustomerCountry        *string     `json:"customer_country,omitempty" db:"customer_country"`
-	BillingName            *string     `json:"billing_name,omitempty" db:"billing_name"`
-	BillingEmail           *string     `json:"billing_email,omitempty" db:"billing_email"`
-	BillingPhone           *string     `json:"billing_phone,omitempty" db:"billing_phone"`
-	BillingAddressLine1    *string     `json:"billing_address_line1,omitempty" db:"billing_address_line1"`
-	BillingAddressLine2    *string     `json:"billing_address_line2,omitempty" db:"billing_address_line2"`
-	BillingCity            *string     `json:"billing_city,omitempty" db:"billing_city"`
-	BillingState           *string     `json:"billing_state,omitempty" db:"billing_state"`
-	BillingCountry         string      `json:"billing_country" db:"billing_country"`
-	BillingPostalCode      *string     `json:"billing_postal_code,omitempty" db:"billing_postal_code"`
-	SubtotalUSDCents       int64       `json:"subtotal_usd_cents" db:"subtotal_usd_cents"`
-	TaxAmountUSDCents      int64       `json:"tax_amount_usd_cents" db:"tax_amount_usd_cents"`
-	DiscountAmountUSDCents int64       `json:"discount_amount_usd_cents" db:"discount_amount_usd_cents"`
-	TotalAmountUSDCents    int64       `json:"total_amount_usd_cents" db:"total_amount_usd_cents"`
-	PaymentGateway         string      `json:"payment_gateway" db:"payment_gateway"`
-	GatewayOrderID         *string     `json:"gateway_order_id,omitempty" db:"gateway_order_id"`
-	GatewayPaymentID       *string     `json:"gateway_payment_id,omitempty" db:"gateway_payment_id"`
-	Status                 OrderStatus `json:"status" db:"status"`
-	AdminReviewedBy        *int64      `json:"admin_reviewed_by,omitempty" db:"admin_reviewed_by"`
-	AdminReviewedAt        *time.Time  `json:"admin_reviewed_at,omitempty" db:"admin_reviewed_at"`
-	AdminNotes             *string     `json:"admin_notes,omitempty" db:"admin_notes"`
-	RejectionReason        *string     `json:"rejection_reason,omitempty" db:"rejection_reason"`
-	DownloadsEnabled       bool        `json:"downloads_enabled" db:"downloads_enabled"`
-	DownloadsExpiresAt     *time.Time  `json:"downloads_expires_at,omitempty" db:"downloads_expires_at"`
-	IdempotencyKey         *string     `json:"idempotency_key,omitempty" db:"idempotency_key"`
-	Metadata               JSONMap     `json:"metadata,omitempty" db:"metadata"`
-	CreatedAt              time.Time   `json:"created_at" db:"created_at"`
-	UpdatedAt              time.Time   `json:"updated_at" db:"updated_at"`
+	ID                     int64        `json:"id" db:"id"`
+	OrderNumber            string       `json:"order_number" db:"order_number"`
+	CustomerEmail          string       `json:"customer_email" db:"customer_email"`
+	CustomerName           string       `json:"customer_name" db:"customer_name"`
+	CustomerPhone          *string      `json:"customer_phone,omitempty" db:"customer_phone"`
+	CustomerIP             *string      `json:"customer_ip,omitempty" db:"customer_ip"`
+	CustomerUserAgent      *string      `json:"customer_user_agent,omitempty" db:"customer_user_agent"`
+	CustomerCountry        *string      `json:"customer_country,omitempty" db:"customer_country"`
+	BillingName            *string      `json:"billing_name,omitempty" db:"billing_name"`
+	BillingEmail           *string      `json:"billing_email,omitempty" db:"billing_email"`
+	BillingPhone           *string      `json:"billing_phone,omitempty" db:"billing_phone"`
+	BillingAddressLine1    *string      `json:"billing_address_line1,omitempty" db:"billing_address_line1"`
+	BillingAddressLine2    *string      `json:"billing_address_line2,omitempty" db:"billing_address_line2"`
+	BillingCity            *string      `json:"billing_city,omitempty" db:"billing_city"`
+	BillingState           *string      `json:"billing_state,omitempty" db:"billing_state"`
+	BillingCountry         string       `json:"billing_country" db:"billing_country"`
+	BillingPostalCode      *string      `json:"billing_postal_code,omitempty" db:"billing_postal_code"`
+	SubtotalUSDCents       int64        `json:"subtotal_usd_cents" db:"subtotal_usd_cents"`
+	TaxAmountUSDCents      int64        `json:"tax_amount_usd_cents" db:"tax_amount_usd_cents"`
+	DiscountAmountUSDCents int64        `json:"discount_amount_usd_cents" db:"discount_amount_usd_cents"`
+	TotalAmountUSDCents    int64        `json:"total_amount_usd_cents" db:"total_amount_usd_cents"`
+	PaymentGateway         string       `json:"payment_gateway" db:"payment_gateway"`
+	GatewayOrderID         *string      `json:"gateway_order_id,omitempty" db:"gateway_order_id"`
+	GatewayPaymentID       *string      `json:"gateway_payment_id,omitempty" db:"gateway_payment_id"`
+	Status                 OrderStatus  `json:"status" db:"status"`
+	AdminReviewedBy        *int64       `json:"admin_reviewed_by,omitempty" db:"admin_reviewed_by"`
+	AdminReviewedAt        *time.Time   `json:"admin_reviewed_at,omitempty" db:"admin_reviewed_at"`
+	AdminNotes             *string      `json:"admin_notes,omitempty" db:"admin_notes"`
+	RejectionReason        *string      `json:"rejection_reason,omitempty" db:"rejection_reason"`
+	DownloadsEnabled       bool         `json:"downloads_enabled" db:"downloads_enabled"`
+	DownloadsExpiresAt     *time.Time   `json:"downloads_expires_at,omitempty" db:"downloads_expires_at"`
+	StatusUpdatedAt        *time.Time   `json:"status_updated_at,omitempty"  db:"status_updated_at"`
+	PreviousStatus         *OrderStatus `json:"previous_status,omitempty"   db:"previous_status"`
+	IdempotencyKey         *string      `json:"idempotency_key,omitempty" db:"idempotency_key"`
+	Metadata               JSONMap      `json:"metadata,omitempty" db:"metadata"`
+	CreatedAt              time.Time    `json:"created_at" db:"created_at"`
+	UpdatedAt              time.Time    `json:"updated_at" db:"updated_at"`
 }
 
 // OrderWithItems includes order items
@@ -353,7 +355,7 @@ type Payment struct {
 	VPA                  *string       `json:"vpa,omitempty" db:"vpa"`
 	CustomerEmail        *string       `json:"customer_email,omitempty" db:"customer_email"`
 	CustomerPhone        *string       `json:"customer_phone,omitempty" db:"customer_phone"`
-	SignatureVerified     bool          `json:"signature_verified" db:"signature_verified"`
+	SignatureVerified    bool          `json:"signature_verified" db:"signature_verified"`
 	VerifiedAt           *time.Time    `json:"verified_at,omitempty" db:"verified_at"`
 	VerificationAttempts int           `json:"verification_attempts" db:"verification_attempts"`
 	GatewayResponse      JSONMap       `json:"gateway_response,omitempty" db:"gateway_response"`
@@ -375,24 +377,24 @@ type Payment struct {
 // ============================================================================
 
 type PaymentWebhook struct {
-	ID               int64      `json:"id" db:"id"`
-	WebhookID        *string    `json:"webhook_id,omitempty" db:"webhook_id"`
-	EventType        string     `json:"event_type" db:"event_type"`
-	OrderID          *int64     `json:"order_id,omitempty" db:"order_id"`
-	PaymentID        *int64     `json:"payment_id,omitempty" db:"payment_id"`
-	GatewayOrderID   *string    `json:"gateway_order_id,omitempty" db:"gateway_order_id"`
-	GatewayPaymentID *string    `json:"gateway_payment_id,omitempty" db:"gateway_payment_id"`
-	Payload          JSONMap    `json:"payload" db:"payload"`
-	Signature        *string    `json:"signature,omitempty" db:"signature"`
+	ID                int64      `json:"id" db:"id"`
+	WebhookID         *string    `json:"webhook_id,omitempty" db:"webhook_id"`
+	EventType         string     `json:"event_type" db:"event_type"`
+	OrderID           *int64     `json:"order_id,omitempty" db:"order_id"`
+	PaymentID         *int64     `json:"payment_id,omitempty" db:"payment_id"`
+	GatewayOrderID    *string    `json:"gateway_order_id,omitempty" db:"gateway_order_id"`
+	GatewayPaymentID  *string    `json:"gateway_payment_id,omitempty" db:"gateway_payment_id"`
+	Payload           JSONMap    `json:"payload" db:"payload"`
+	Signature         *string    `json:"signature,omitempty" db:"signature"`
 	SignatureVerified bool       `json:"signature_verified" db:"signature_verified"`
-	Processed        bool       `json:"processed" db:"processed"`
-	ProcessedAt      *time.Time `json:"processed_at,omitempty" db:"processed_at"`
-	ProcessingError  *string    `json:"processing_error,omitempty" db:"processing_error"`
-	RetryCount       int        `json:"retry_count" db:"retry_count"`
-	MaxRetries       int        `json:"max_retries" db:"max_retries"`
-	SourceIP         *string    `json:"source_ip,omitempty" db:"source_ip"`
-	UserAgent        *string    `json:"user_agent,omitempty" db:"user_agent"`
-	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
+	Processed         bool       `json:"processed" db:"processed"`
+	ProcessedAt       *time.Time `json:"processed_at,omitempty" db:"processed_at"`
+	ProcessingError   *string    `json:"processing_error,omitempty" db:"processing_error"`
+	RetryCount        int        `json:"retry_count" db:"retry_count"`
+	MaxRetries        int        `json:"max_retries" db:"max_retries"`
+	SourceIP          *string    `json:"source_ip,omitempty" db:"source_ip"`
+	UserAgent         *string    `json:"user_agent,omitempty" db:"user_agent"`
+	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
 }
 
 // ============================================================================
