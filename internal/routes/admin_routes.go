@@ -79,31 +79,31 @@ func setupDashboardRoutes(protected fiber.Router, h *AdminHandlers) {
 func setupBlogRoutes(protected fiber.Router, h *AdminHandlers) {
 	blog := protected.Group("/blog")
 
-	// Posts
+	// Posts — static paths MUST come before /:id
 	posts := blog.Group("/posts")
-	posts.Get("/search", h.BlogPost.Search)
 	posts.Get("/", h.BlogPost.GetAll)
+	posts.Get("/search", h.BlogPost.Search)        // FIX: moved before /:id
+	posts.Get("/slug/:slug", h.BlogPost.GetBySlug) // FIX: moved before /:id
 	posts.Get("/:id", h.BlogPost.GetByID)
-	posts.Get("/slug/:slug", h.BlogPost.GetBySlug)
 	posts.Post("/", h.BlogPost.Create)
 	posts.Put("/:id", h.BlogPost.Update)
 	posts.Patch("/:id", h.BlogPost.Patch)
 	posts.Delete("/:id", h.BlogPost.Delete)
 
-	// Authors
+	// Authors — static paths MUST come before /:id
 	authors := blog.Group("/authors")
 	authors.Get("/", h.BlogAuthor.GetAll)
+	authors.Get("/slug/:slug", h.BlogAuthor.GetBySlug) // FIX: moved before /:id
 	authors.Get("/:id", h.BlogAuthor.GetByID)
-	authors.Get("/slug/:slug", h.BlogAuthor.GetBySlug)
 	authors.Post("/", h.BlogAuthor.Create)
 	authors.Put("/:id", h.BlogAuthor.Update)
 	authors.Delete("/:id", h.BlogAuthor.Delete)
 
-	// Categories
+	// Categories — static paths MUST come before /:id
 	categories := blog.Group("/categories")
 	categories.Get("/", h.BlogCategory.GetAll)
+	categories.Get("/slug/:slug", h.BlogCategory.GetBySlug) // FIX: moved before /:id
 	categories.Get("/:id", h.BlogCategory.GetByID)
-	categories.Get("/slug/:slug", h.BlogCategory.GetBySlug)
 	categories.Post("/", h.BlogCategory.Create)
 	categories.Put("/:id", h.BlogCategory.Update)
 	categories.Delete("/:id", h.BlogCategory.Delete)
@@ -115,19 +115,14 @@ func setupOrderRoutes(protected fiber.Router, h *AdminHandlers) {
 	o := protected.Group("/orders")
 
 	o.Get("/", h.Order.GetAllOrders)
-	o.Get("/pending-review", h.Order.GetPendingReviewOrders)
+	o.Get("/pending-review", h.Order.GetPendingReviewOrders) // static before /:id ✅
 	o.Get("/:id", h.Order.GetOrderByID)
 
-	// Admin actions
 	o.Post("/:id/approve", h.Order.ApproveOrder)
 	o.Post("/:id/reject", h.Order.RejectOrder)
-
-	// Mark as paid
 	o.Post("/:id/mark-paid", h.Order.MarkOrderAsPaid)
 
-	// Delete order
 	o.Delete("/:id", h.Order.DeleteOrder)
-
 }
 
 /* ================= TEMPLATES ================= */
@@ -145,6 +140,7 @@ func setupTemplateRoutes(protected fiber.Router, h *AdminHandlers) {
 
 	t.Post("/:id/upload-file", h.Template.UploadTemplateFile)
 
+	// Sub-resource routes — not affected by /:id conflict ✅
 	t.Post("/:id/images", h.Template.AddImage)
 	t.Delete("/images/:id", h.Template.DeleteImage)
 
@@ -171,7 +167,7 @@ func setupCategoryRoutes(protected fiber.Router, h *AdminHandlers) {
 func setupContactRoutes(protected fiber.Router, h *AdminHandlers) {
 	c := protected.Group("/contacts")
 
-	c.Get("/analytics", h.Contact.GetAnalytics)
+	c.Get("/analytics", h.Contact.GetAnalytics) // static before /:id ✅
 	c.Get("/", h.Contact.GetAll)
 	c.Get("/:id", h.Contact.GetByID)
 	c.Put("/:id", h.Contact.Update)
