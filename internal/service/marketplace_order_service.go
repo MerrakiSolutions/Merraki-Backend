@@ -229,7 +229,7 @@ func (s *OrderService) InitiatePayment(ctx context.Context, orderID int64) (*dom
 	// Create Razorpay order — Razorpay expects amount in smallest currency unit (paise for INR)
 	// Since we're USD-only, amount is in cents
 	razorpayOrder, err := s.paymentService.CreateOrder(ctx, &CreateRazorpayOrderRequest{
-		Amount: float64(order.TotalAmountUSDCents), // cents
+		AmountUSDCents: order.TotalAmountUSDCents,
 		Receipt: order.OrderNumber,
 		Notes: map[string]string{
 			"order_id":       fmt.Sprintf("%d", order.ID),
