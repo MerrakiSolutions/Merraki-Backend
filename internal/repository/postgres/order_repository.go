@@ -225,24 +225,20 @@ func (r *OrderRepository) UpdateStatus(ctx context.Context, id int64, newStatus 
 		return domain.ErrInvalidStateTransition
 	}
 
+	// triggeredBy is kept for context but the trigger handles the transition log
+	_ = func() string {
+		if adminID != nil {
+			return "admin"
+		}
+		return "system"
+	}()
+
 	if _, err = tx.ExecContext(ctx,
 		`UPDATE orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
 		newStatus, id,
 	); err != nil {
 		return err
 	}
-
-	triggeredBy := "system"
-	if adminID != nil {
-		triggeredBy = "admin"
-	}
-	if _, err = tx.ExecContext(ctx, `
-		INSERT INTO order_state_transitions (order_id, from_status, to_status, triggered_by, admin_id)
-		VALUES ($1, $2, $3, $4, $5)
-	`, id, order.Status, newStatus, triggeredBy, adminID); err != nil {
-		return err
-	}
-
 	return tx.Commit()
 }
 
