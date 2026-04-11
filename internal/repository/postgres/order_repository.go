@@ -395,7 +395,6 @@ func (r *OrderRepository) Delete(ctx context.Context, id int64, adminID int64) e
 // Analytics
 // ============================================================================
 
-// FIX 3: Changed return type from float64 to int64 to match interface
 func (r *OrderRepository) GetRevenueByDateRange(ctx context.Context, startDate, endDate string) (float64, error) {
 	var revenue int64
 	err := r.db.GetContext(ctx, &revenue, `
