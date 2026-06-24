@@ -8,17 +8,18 @@ import (
 )
 
 type AdminHandlers struct {
-	Auth         *adminHandlers.AuthHandler
-	Dashboard    *adminHandlers.DashboardHandler
-	Order        *adminHandlers.OrderHandler
-	Template     *adminHandlers.TemplateHandler
-	Category     *adminHandlers.CategoryHandler
-	BlogPost     *adminHandlers.BlogPostHandler
-	BlogAuthor   *adminHandlers.BlogAuthorHandler
-	BlogCategory *adminHandlers.BlogCategoryHandler
-	Newsletter   *adminHandlers.NewsletterHandler
-	Contact      *adminHandlers.ContactHandler
-	AdminUser    *adminHandlers.AdminUserHandler
+	Auth             *adminHandlers.AuthHandler
+	Dashboard        *adminHandlers.DashboardHandler
+	Order            *adminHandlers.OrderHandler
+	Template         *adminHandlers.TemplateHandler
+	Category         *adminHandlers.CategoryHandler
+	BlogPost         *adminHandlers.BlogPostHandler
+	BlogAuthor       *adminHandlers.BlogAuthorHandler
+	BlogCategory     *adminHandlers.BlogCategoryHandler
+	Newsletter       *adminHandlers.NewsletterHandler
+	Contact          *adminHandlers.ContactHandler
+	AdminUser        *adminHandlers.AdminUserHandler
+	FounderLeadAdmin *adminHandlers.FounderLeadAdminHandler
 }
 
 func SetupAdminRoutes(api fiber.Router, h *AdminHandlers, cfg *config.Config) {
@@ -160,6 +161,19 @@ func setupCategoryRoutes(protected fiber.Router, h *AdminHandlers) {
 	c.Post("/", h.Category.CreateCategory)
 	c.Put("/:id", h.Category.UpdateCategory)
 	c.Delete("/:id", h.Category.DeleteCategory)
+}
+
+/* ================= FOUNDER LEAD ================= */
+
+func setupFounderLeadRoutes(protected fiber.Router, h *AdminHandlers) {
+	f := protected.Group("/founder-leads")
+
+	f.Get("/", h.FounderLeadAdmin.List)
+	f.Get("/stats", h.FounderLeadAdmin.GetStats)
+	f.Get("/:id", h.FounderLeadAdmin.GetOne)
+	f.Patch("/:id/status", h.FounderLeadAdmin.UpdateStatus)
+	f.Post("/:id/email", h.FounderLeadAdmin.SendEmail)
+	f.Delete("/:id", h.FounderLeadAdmin.Delete)
 }
 
 /* ================= CONTACTS ================= */

@@ -99,6 +99,9 @@ func main() {
 	newsletterRepo := postgres.NewNewsletterRepository(db)
 	contactRepo := postgres.NewContactRepository(db)
 
+	// Founder's Lead
+	founderLeadRepo := postgres.NewFounderLeadRepository(db.DB)
+
 	logger.Info("✅ Repositories initialized")
 
 	// ========================================================================
@@ -166,6 +169,9 @@ func main() {
 	// Dashboard Service (EXISTING)
 	dashboardService := service.NewDashboardService(db.Pool)
 
+	// Founder's Lead Service (EXISTING)
+	founderLeadService := service.NewFounderLeadService(founderLeadRepo, emailService)
+
 	logger.Info("✅ Services initialized")
 
 	// ========================================================================
@@ -214,29 +220,31 @@ func main() {
 
 	// Public Handlers
 	publicHandlersStruct := &routes.PublicHandlers{
-		Template:   publicHandlers.NewTemplateHandler(templateService, categoryService),
-		Order:      publicHandlers.NewOrderHandler(orderService),
-		Checkout:   publicHandlers.NewCheckoutHandler(orderService, paymentService),
-		Download:   publicHandlers.NewDownloadHandler(downloadTokenService),
-		Blog:       publicHandlers.NewBlogHandler(blogPostService, blogAuthorService, blogCategoryService),
-		Newsletter: publicHandlers.NewNewsletterHandler(newsletterService),
-		Contact:    publicHandlers.NewContactHandler(contactService),
-		Utility:    publicHandlers.NewUtilityHandler(db, redisClient),
+		Template:    publicHandlers.NewTemplateHandler(templateService, categoryService),
+		Order:       publicHandlers.NewOrderHandler(orderService),
+		Checkout:    publicHandlers.NewCheckoutHandler(orderService, paymentService),
+		Download:    publicHandlers.NewDownloadHandler(downloadTokenService),
+		Blog:        publicHandlers.NewBlogHandler(blogPostService, blogAuthorService, blogCategoryService),
+		Newsletter:  publicHandlers.NewNewsletterHandler(newsletterService),
+		FounderLead: publicHandlers.NewFounderLeadHandler(founderLeadService),
+		Contact:     publicHandlers.NewContactHandler(contactService),
+		Utility:     publicHandlers.NewUtilityHandler(db, redisClient),
 	}
 
 	// Admin Handlers
 	adminHandlersStruct := &routes.AdminHandlers{
-		Auth:         adminHandlers.NewAuthHandler(authService),
-		Dashboard:    adminHandlers.NewDashboardHandler(dashboardService),
-		Order:        adminHandlers.NewOrderHandler(orderService),
-		Template:     adminHandlers.NewTemplateHandler(templateService, storageService),
-		Category:     adminHandlers.NewCategoryHandler(categoryService),
-		BlogPost:     adminHandlers.NewBlogPostHandler(blogPostService),
-		BlogAuthor:   adminHandlers.NewBlogAuthorHandler(blogAuthorService),
-		BlogCategory: adminHandlers.NewBlogCategoryHandler(blogCategoryService),
-		Newsletter:   adminHandlers.NewNewsletterHandler(newsletterService),
-		Contact:      adminHandlers.NewContactHandler(contactService),
-		AdminUser:    adminHandlers.NewAdminUserHandler(adminService),
+		Auth:             adminHandlers.NewAuthHandler(authService),
+		Dashboard:        adminHandlers.NewDashboardHandler(dashboardService),
+		Order:            adminHandlers.NewOrderHandler(orderService),
+		Template:         adminHandlers.NewTemplateHandler(templateService, storageService),
+		Category:         adminHandlers.NewCategoryHandler(categoryService),
+		BlogPost:         adminHandlers.NewBlogPostHandler(blogPostService),
+		BlogAuthor:       adminHandlers.NewBlogAuthorHandler(blogAuthorService),
+		BlogCategory:     adminHandlers.NewBlogCategoryHandler(blogCategoryService),
+		Newsletter:       adminHandlers.NewNewsletterHandler(newsletterService),
+		Contact:          adminHandlers.NewContactHandler(contactService),
+		FounderLeadAdmin: adminHandlers.NewFounderLeadAdminHandler(founderLeadService),
+		AdminUser:        adminHandlers.NewAdminUserHandler(adminService),
 	}
 
 	logger.Info("✅ Handlers initialized")

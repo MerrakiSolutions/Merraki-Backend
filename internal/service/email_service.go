@@ -324,6 +324,98 @@ func (s *EmailService) getEmailTemplate(name string) *template.Template {
 }
 
 // ============================================================================
+// FOUNDER LEAD EMAILS
+// ============================================================================
+
+// SendFounderLeadConfirmation - Confirmation email to founder after test submission
+func (s *EmailService) SendFounderLeadConfirmation(ctx context.Context, lead *domain.FounderLead) error {
+	subject := "Your Founder Personality Test Results"
+
+	htmlBody := fmt.Sprintf(`
+		<h2>Hi %s,</h2>
+		<p>Thank you for taking our Founder Personality Test!</p>
+
+		<div style="background-color: %s; padding: 20px; border-radius: 8px; margin: 20px 0;">
+			<h3 style="color: white; margin: 0;">%s</h3>
+			<p style="color: white; font-size: 48px; margin: 10px 0;">%s</p>
+			<p style="color: white; margin: 0;">Score: %d/%d (%.0f%%)</p>
+		</div>
+
+		<p>%s</p>
+
+		<p>We'll be in touch soon with personalized insights and recommendations for your startup journey.</p>
+
+		<p>Best regards,<br/>The Merraki Team</p>
+	`,
+		lead.Name,
+		lead.PersonalityColor,
+		lead.PersonalityTitle,
+		lead.PersonalityBadge,
+		lead.TotalScore,
+		lead.TotalMax,
+		float64(lead.TotalScore)/float64(lead.TotalMax)*100,
+		lead.PersonalityDescription,
+	)
+
+	return s.sendEmail(lead.Email, subject, htmlBody)
+}
+
+// SendFounderLeadNotification - Notification email to admin about new lead
+func (s *EmailService) SendFounderLeadNotification(ctx context.Context, lead *domain.FounderLead) error {
+	subject := fmt.Sprintf("New Founder Lead: %s (%s)", lead.Name, lead.PersonalityType)
+
+	htmlBody := fmt.Sprintf(`
+		<h2>New Founder Test Lead Submitted</h2>
+
+		<h3>Contact Information</h3>
+		<ul>
+			<li><strong>Name:</strong> %s</li>
+			<li><strong>Email:</strong> %s</li>
+			<li><strong>Company:</strong> %s</li>
+			<li><strong>Role:</strong> %s</li>
+		</ul>
+
+		<h3>Test Results</h3>
+		<ul>
+			<li><strong>Personality Type:</strong> %s</li>
+			<li><strong>Score:</strong> %d/%d (%.0f%%)</li>
+		</ul>
+
+		<p><a href="%s/admin/founders-leads/%d">View Lead in Admin Panel</a></p>
+	`,
+		lead.Name,
+		lead.Email,
+		lead.Company,
+		lead.Role,
+		lead.PersonalityType,
+		lead.TotalScore,
+		lead.TotalMax,
+		float64(lead.TotalScore)/float64(lead.TotalMax)*100,
+		s.cfg.Frontend.AdminURL,
+		lead.ID,
+	)
+
+	return s.sendEmail(s.cfg.Email.FromEmail, subject, htmlBody)
+}
+
+// SendFounderFollowUp - Follow-up email from admin to a lead
+func (s *EmailService) SendFounderFollowUp(ctx context.Context, email, name, subject, message string) error {
+	htmlBody := fmt.Sprintf(`
+		<p>Hi %s,</p>
+
+		<div style="background-color: #f5f5f5; padding: 15px; border-left: 4px solid #DC2626;">
+			%s
+		</div>
+
+		<p>We look forward to connecting with you!</p>
+
+		<p>Best regards,<br/>The Merraki Team</p>
+	`, name, message)
+
+	return s.sendEmail(email, subject, htmlBody)
+}
+
+// ============================================================================
 // EMAIL TEMPLATES
 // ============================================================================
 

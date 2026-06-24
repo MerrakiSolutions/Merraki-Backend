@@ -18,6 +18,7 @@ type PublicHandlers struct {
 	Newsletter *publicHandlers.NewsletterHandler
 	Contact    *publicHandlers.ContactHandler
 	Utility    *publicHandlers.UtilityHandler
+	FounderLead *publicHandlers.FounderLeadHandler
 }
 
 // ============================================================================
@@ -89,6 +90,15 @@ func SetupPublicRoutes(api fiber.Router, handlers *PublicHandlers) {
 		orders.Get("/by-email", handlers.Order.GetOrdersByEmail)
 		// parameterized last
 		orders.Get("/:id", handlers.Order.GetOrderByID)
+	}
+
+	// ========================================================================
+	// FOUNDER TEST
+	// ========================================================================
+
+	founderTest := public.Group("/founders-test")
+	{
+		founderTest.Post("/submit", handlers.FounderLead.Submit)
 	}
 
 	// ========================================================================
