@@ -36,6 +36,7 @@ func SetupAdminRoutes(api fiber.Router, h *AdminHandlers, cfg *config.Config) {
 	setupCategoryRoutes(protected, h)
 	setupContactRoutes(protected, h)
 	setupAdminUserRoutes(protected, h)
+	setupFounderLeadRoutes(protected, h)
 	setupGlobalRoutes(protected, h)
 }
 
