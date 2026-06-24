@@ -26,7 +26,7 @@ func SetupRoutes(
 
 	// Recover from panics
 	app.Use(recover.New(recover.Config{
-		EnableStackTrace: cfg.Server.Environment == "development",
+		EnableStackTrace: cfg.Server.Environment == "production",
 	}))
 
 	// Request logger
