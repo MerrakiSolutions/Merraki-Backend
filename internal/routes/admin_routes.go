@@ -28,6 +28,7 @@ func SetupAdminRoutes(api fiber.Router, h *AdminHandlers, cfg *config.Config) {
 	setupAuthRoutes(admin, h)
 	protected := admin.Use(middleware.AdminAuth(cfg))
 
+	
 	setupProtectedAuthRoutes(protected, h)
 	setupDashboardRoutes(protected, h)
 	setupBlogRoutes(protected, h)
