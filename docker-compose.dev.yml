@@ -1,0 +1,41 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: merraki-postgres-dev
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: merraki
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+
+    container_name: merraki-api-dev
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      - ./src:/app/src
+      - /app/node_modules
+
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_dev_data:

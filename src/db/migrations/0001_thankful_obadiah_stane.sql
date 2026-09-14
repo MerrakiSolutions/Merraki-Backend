@@ -1,0 +1,1 @@
+ALTER TABLE "templates" ALTER COLUMN "preview_images" SET DEFAULT '[]';

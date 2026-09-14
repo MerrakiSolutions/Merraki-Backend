@@ -1,0 +1,1 @@
+CREATE INDEX "founder_test_results_result_type_idx" ON "founder_test_results" USING btree ("result_type");

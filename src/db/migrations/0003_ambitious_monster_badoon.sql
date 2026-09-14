@@ -1,0 +1,1 @@
+CREATE INDEX "blog_posts_author_idx" ON "blog_posts" USING btree ("author_id");
