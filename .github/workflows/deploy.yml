@@ -17,6 +17,7 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
           script: |
             set -e
 
@@ -32,7 +33,16 @@ jobs:
             echo "Restarting API..."
             docker compose -f docker-compose.prod.yml up -d api
 
+            echo "Waiting for API..."
+            sleep 10
+
+            echo "Checking API health..."
+            HEALTH=$(curl -fsS http://127.0.0.1:8000/health)
+
+            echo "Health response:"
+            echo "$HEALTH"
+
             echo "Checking containers..."
             docker compose -f docker-compose.prod.yml ps
 
-            echo "Deployment completed."
+            echo "Deployment completed successfully."
