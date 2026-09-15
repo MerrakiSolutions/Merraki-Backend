@@ -29,6 +29,9 @@ jobs:
             echo "Rebuilding API..."
             docker compose -f docker-compose.prod.yml build api
 
+            echo "Running database migrations..."
+            docker compose -f docker-compose.prod.yml run --rm api node dist/db/migrate.js
+
             echo "Restarting API..."
             docker compose -f docker-compose.prod.yml up -d api
 
