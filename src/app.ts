@@ -3,6 +3,7 @@ import cors from '@fastify/cors'
 import cookie from '@fastify/cookie'
 import multipart from '@fastify/multipart'
 import rateLimit from '@fastify/rate-limit'
+import metricsPlugin from './plugins/metrics'
 
 import { env } from './config/env.js'
 import { AppError } from './lib/errors.js'
@@ -51,6 +52,8 @@ await app.register(rateLimit, {
   max: 100,
   timeWindow: '1 minute',
 })
+
+await app.register(metricsPlugin)
 
 // ── Raw body for Razorpay webhook ─────────────────────────────────
 
