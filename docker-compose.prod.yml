@@ -96,9 +96,30 @@ services:
       api:
         condition: service_healthy
 
+  grafana:
+    image: grafana/grafana:latest
+    container_name: merraki-grafana
+    restart: unless-stopped
+
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+    networks:
+      - merraki-network
+
+    depends_on:
+      prometheus:
+        condition: service_started
+
 volumes:
   postgres_prod_data:
   prometheus_data:
+  grafana_data:
 
 networks:
   merraki-network:
