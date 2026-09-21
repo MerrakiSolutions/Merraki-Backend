@@ -35,9 +35,27 @@ const app = Fastify({
 // ── Plugins ───────────────────────────────────────────────────────
 
 await app.register(cors, {
-  origin: [env.FRONTEND_URL],
+  origin: (origin, callback) => {
+    const allowed = [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      env.FRONTEND_URL,                          // https://merrakisolutions.com
+      'https://www.merrakisolutions.com',        // www subdomain
+      'https://admin.merrakisolutions.com',      // admin panel
+    ].filter(Boolean)
+
+    // Allow no-origin requests (server-to-server, Postman, curl)
+    if (!origin) return callback(null, true)
+
+    if (allowed.includes(origin)) {
+      callback(null, true)
+    } else {
+      callback(new Error(`CORS blocked: ${origin}`), false)
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 })
 
 await app.register(cookie, {
