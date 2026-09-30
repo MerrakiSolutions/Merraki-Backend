@@ -5,7 +5,7 @@ import type {
   UpdateJobInput,
 } from './jobs.service.js'
 import { authenticate } from '../../middleware/authenticate.js'
-import { requireAdmin } from '@/middleware/require-admin.js'
+import { requireAdmin } from '../../middleware/require-admin.js'
 
 // ── Public routes ────────────────────────────────────────────────────────────
 
