@@ -19,6 +19,7 @@ import { publicNewsletterRoutes, adminNewsletterRoutes } from './modules/newslet
 import { publicContactRoutes, adminContactRoutes } from './modules/contacts/contacts.routes.js'
 import { publicFounderTestRoutes, adminFounderTestRoutes } from './modules/founder-tests/founder-tests.routes.js'
 import { publicBrandingRoutes, adminBrandingRoutes } from './modules/branding/branding.routes.js'
+import { publicJobRoutes, adminJobRoutes } from './modules/jobs/jobs.routes.js'
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes.js'
 
 const app = Fastify({
@@ -80,10 +81,11 @@ app.addContentTypeParser(
   { parseAs: 'string' },
   (_req, body, done) => {
     try {
-      ; (_req as any).rawBody = body as string
+      ;(_req as any).rawBody = body as string
       done(null, JSON.parse(body as string))
     } catch (err) {
-      done(err as Error, undefined)
+      // Return a proper 400 instead of an unhandled parse exception
+      done(Object.assign(new Error('Invalid JSON body'), { statusCode: 400 }), undefined)
     }
   }
 )
@@ -160,6 +162,10 @@ await app.register(adminFounderTestRoutes, { prefix: '/api/admin/founder-test' }
 // branding
 await app.register(publicBrandingRoutes, { prefix: '/api/branding' })
 await app.register(adminBrandingRoutes, { prefix: '/api/admin/branding' })
+
+// jobs
+await app.register(publicJobRoutes, { prefix: '/api/jobs' })
+await app.register(adminJobRoutes, { prefix: '/api/admin/jobs' })
 
 // dashboard
 await app.register(dashboardRoutes, { prefix: '/api/admin/dashboard' })

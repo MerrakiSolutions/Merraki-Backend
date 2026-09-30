@@ -44,3 +44,12 @@ export const brandingSocialLinks = pgTable('branding_social_links', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 })
+
+
+export const brandingSettings = pgTable('branding_settings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  companyApplyUrl: varchar('company_apply_url', { length: 500 }),  // renamed
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+})
+
+export type BrandingSettings = typeof brandingSettings.$inferSelect

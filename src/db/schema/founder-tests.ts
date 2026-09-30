@@ -14,6 +14,7 @@ export const founderTestResults = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     leadName: varchar('lead_name', { length: 255 }).notNull(),
+
     leadEmail: varchar('lead_email', { length: 255 }).notNull(),
     leadCompany: varchar('lead_company', { length: 255 }),
     answers: jsonb('answers').notNull(),       // { q1: "A", q2: "B", ... }

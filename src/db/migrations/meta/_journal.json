@@ -43,6 +43,20 @@
       "when": 1786639986579,
       "tag": "0005_wet_phalanx",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790333589817,
+      "tag": "0006_opposite_wither",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790766816258,
+      "tag": "0007_talented_natasha_romanoff",
+      "breakpoints": true
     }
   ]
 }

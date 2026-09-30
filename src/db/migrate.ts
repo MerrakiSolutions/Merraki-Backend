@@ -12,7 +12,7 @@ async function main() {
   console.log("🔄 Running migrations...");
 
   await migrate(db, {
-    migrationsFolder: "./dist/db/migrations",
+    migrationsFolder: "./src/db/migrations",
   });
 
   console.log("✅ Migrations complete");

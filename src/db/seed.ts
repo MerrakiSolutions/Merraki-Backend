@@ -1,6 +1,7 @@
 import postgres from 'postgres'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { users } from './schema/users.js'
+import {seedFounderTest} from './seed/founder-test-seed.js'
 import { eq } from 'drizzle-orm'
 import bcrypt from 'bcryptjs'
 import dotenv from 'dotenv'
@@ -37,6 +38,7 @@ async function seed() {
   })
 
   console.log(`✅ Superadmin created: ${email}`)
+  await seedFounderTest();
   await client.end()
 }
 
