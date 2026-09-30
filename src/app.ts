@@ -21,6 +21,7 @@ import { publicFounderTestRoutes, adminFounderTestRoutes } from './modules/found
 import { publicBrandingRoutes, adminBrandingRoutes } from './modules/branding/branding.routes.js'
 import { publicJobRoutes, adminJobRoutes } from './modules/jobs/jobs.routes.js'
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes.js'
+import { ZodError } from 'zod'
 
 const app = Fastify({
   logger: {
@@ -81,7 +82,7 @@ app.addContentTypeParser(
   { parseAs: 'string' },
   (_req, body, done) => {
     try {
-      ;(_req as any).rawBody = body as string
+      ; (_req as any).rawBody = body as string
       done(null, JSON.parse(body as string))
     } catch (err) {
       // Return a proper 400 instead of an unhandled parse exception
@@ -100,14 +101,33 @@ app.setErrorHandler((error, _request, reply) => {
     })
   }
 
-  if (error instanceof Error && 'validation' in error && error.validation) {
+  // schema.parse() failures inside route handlers
+  if (error instanceof ZodError) {
+    const first = error.issues[0]
+    const field = first?.path.join('.')
     return reply.status(400).send({
       success: false,
       error: {
         code: 'VALIDATION_ERROR',
-        message: 'Validation failed',
-        details: (error as any).validation,
+        message: first ? (field ? `${field}: ${first.message}` : first.message) : 'Validation failed',
+        details: error.issues,
       },
+    })
+  }
+
+  // Fastify's own 4xx errors (rate limit, payload too large, invalid JSON...)
+  const statusCode = (error as { statusCode?: number }).statusCode
+  if (statusCode && statusCode >= 400 && statusCode < 500) {
+    return reply.status(statusCode).send({
+      success: false,
+      error: { code: 'BAD_REQUEST', message: error instanceof Error ? error.message : String(error) },
+    })
+  }
+
+  if (error instanceof Error && 'validation' in error && error.validation) {
+    return reply.status(400).send({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'Validation failed', details: (error as any).validation },
     })
   }
 

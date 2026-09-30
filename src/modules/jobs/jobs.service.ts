@@ -2,51 +2,41 @@ import { db } from '../../db/index.js'
 import { jobs, type Job, type NewJob } from '../../db/schema/jobs.js'
 import { brandingSettings } from '../../db/schema/branding.js'
 import { eq, asc, desc } from 'drizzle-orm'
-import { AppError } from '../../lib/errors.js'
-import slugify from "slugify"
+import { NotFoundError } from '../../lib/errors.js'
+import slugify from 'slugify'
+import type { CreateJobInput, UpdateJobInput } from './jobs.schema.js'
 
-// ── Slug helper ────────────────────────────────────────────────────────────────
+// ── Slug helper ──────────────────────────────────────────────────────────────
 
-async function generateUniqueSlug(title: string, excludeId?: string): Promise<string> {
-  const baseSlug: string = slugify(title)
-
+async function generateUniqueSlug(title: string): Promise<string> {
+  const baseSlug = slugify(title, { lower: true, strict: true }) || 'job'
   let slug = baseSlug
   let counter = 1
 
   while (true) {
-    const [existing] = await db.select().from(jobs).where(eq(jobs.slug, slug)).limit(1)
-    if (!existing || existing.id === excludeId) break
-    slug = `${baseSlug}-${counter}`
+    const [existing] = await db
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(eq(jobs.slug, slug))
+      .limit(1)
+    if (!existing) break
     counter += 1
+    slug = `${baseSlug}-${counter}`
   }
 
   return slug
 }
 
-// ── Numeric coercion helper ─────────────────────────────────────────────────────
-// displayOrder comes in through JSON/HTTP as `unknown` at runtime even though our
-// interfaces declare it as `number` — this guards against a stray string ("3")
-// ever reaching Drizzle, which is what produces the
-// "Argument of type 'string' is not assignable to parameter of type 'number'" error.
-
-function toDisplayOrder(value: unknown, fallback: number): number {
-  if (value === undefined || value === null || value === '') return fallback
-  const n = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(n) ? n : fallback
-}
-
-// ── Company fallback URL ────────────────────────────────────────────────────────
+// ── Company fallback link ────────────────────────────────────────────────────
 
 async function getCompanyApplyUrl(): Promise<string | null> {
   const [settings] = await db.select().from(brandingSettings).limit(1)
   return settings?.companyApplyUrl ?? null
 }
 
-function withApplyUrl(job: Job, companyApplyUrl: string | null) {
-  return {
-    ...job,
-    applyUrl: job.applyUrl || companyApplyUrl || null,
-  }
+// Public responses carry the RESOLVED link: job link → company link → null
+function withResolvedApplyUrl(job: Job, companyApplyUrl: string | null) {
+  return { ...job, applyUrl: job.applyUrl || companyApplyUrl || null }
 }
 
 // ── Public reads ─────────────────────────────────────────────────────────────
@@ -59,54 +49,32 @@ export async function listActiveJobs() {
     .orderBy(asc(jobs.displayOrder), desc(jobs.createdAt))
 
   const companyApplyUrl = await getCompanyApplyUrl()
-  return activeJobs.map((job) => withApplyUrl(job, companyApplyUrl))
+  return activeJobs.map((job) => withResolvedApplyUrl(job, companyApplyUrl))
 }
 
 export async function getActiveJobBySlug(slug: string) {
   const [job] = await db.select().from(jobs).where(eq(jobs.slug, slug)).limit(1)
-
-  if (!job || !job.isActive) {
-    throw new AppError('NOT_FOUND', 404)
-  }
+  if (!job || !job.isActive) throw new NotFoundError('Job not found.')
 
   const companyApplyUrl = await getCompanyApplyUrl()
-  return withApplyUrl(job, companyApplyUrl)
+  return withResolvedApplyUrl(job, companyApplyUrl)
 }
 
-// ── Admin reads ──────────────────────────────────────────────────────────────
+// ── Admin reads (raw rows — admin needs to see the job's OWN link) ───────────
 
 export async function listAllJobs() {
-  return db
-    .select()
-    .from(jobs)
-    .orderBy(asc(jobs.displayOrder), desc(jobs.createdAt))
+  return db.select().from(jobs).orderBy(asc(jobs.displayOrder), desc(jobs.createdAt))
 }
 
 export async function getJobById(id: string): Promise<Job> {
   const [job] = await db.select().from(jobs).where(eq(jobs.id, id)).limit(1)
-  if (!job) throw new AppError('NOT_FOUND', 404)
+  if (!job) throw new NotFoundError('Job not found.')
   return job
 }
 
 // ── Admin writes ─────────────────────────────────────────────────────────────
 
-export interface CreateJobInput {
-  title: string
-  team: string
-  type: string
-  location: string
-  description?: unknown
-  requirements?: string[]
-  applyUrl?: string
-  isActive?: boolean
-  displayOrder?: number
-}
-
 export async function createJob(input: CreateJobInput): Promise<Job> {
-  if (!input.title || !input.team || !input.type || !input.location) {
-    throw new AppError('VALIDATION_ERROR', 400)
-  }
-
   const slug = await generateUniqueSlug(input.title)
 
   const values: NewJob = {
@@ -119,72 +87,36 @@ export async function createJob(input: CreateJobInput): Promise<Job> {
     requirements: input.requirements ?? [],
     applyUrl: input.applyUrl ?? null,
     isActive: input.isActive ?? true,
-    displayOrder: toDisplayOrder(input.displayOrder, 0),
+    displayOrder: input.displayOrder ?? 0,
   }
 
   const [created] = await db.insert(jobs).values(values).returning()
   return created
 }
 
-export interface UpdateJobInput {
-  title?: string
-  team?: string
-  type?: string
-  location?: string
-  description?: unknown
-  requirements?: string[]
-  applyUrl?: string | null
-  isActive?: boolean
-  displayOrder?: number
-}
-
 export async function updateJob(id: string, input: UpdateJobInput): Promise<Job> {
-  const existing = await getJobById(id)
+  await getJobById(id)
 
-  let slug = existing.slug
-  if (input.title && input.title !== existing.title) {
-    slug = await generateUniqueSlug(input.title, id)
-  }
-
-  // Build the patch explicitly rather than spreading `input` directly —
-  // this guarantees displayOrder is a real number before it ever reaches
-  // Drizzle's `.set()`, which is where the type error was surfacing.
-  const patch: Partial<NewJob> = {
-    ...(input.title !== undefined && { title: input.title }),
-    ...(input.team !== undefined && { team: input.team }),
-    ...(input.type !== undefined && { type: input.type }),
-    ...(input.location !== undefined && { location: input.location }),
-    ...(input.description !== undefined && { description: input.description }),
-    ...(input.requirements !== undefined && { requirements: input.requirements }),
-    ...(input.applyUrl !== undefined && { applyUrl: input.applyUrl }),
-    ...(input.isActive !== undefined && { isActive: input.isActive }),
-    ...(input.displayOrder !== undefined && {
-      displayOrder: toDisplayOrder(input.displayOrder, existing.displayOrder),
-    }),
-    slug,
-    updatedAt: new Date(),
-  }
-
+  // Slug stays stable on edit so shared/bookmarked job links never break
   const [updated] = await db
     .update(jobs)
-    .set(patch)
+    .set({ ...input, updatedAt: new Date() })
     .where(eq(jobs.id, id))
     .returning()
 
   return updated
 }
 
-export async function deleteJob(id: string): Promise<{ id: string }> {
-  const [deleted] = await db.delete(jobs).where(eq(jobs.id, id)).returning()
-  if (!deleted) throw new AppError('NOT_FOUND', 404)
-  return { id: deleted.id }
+export async function deleteJob(id: string): Promise<{ message: string }> {
+  const [deleted] = await db.delete(jobs).where(eq(jobs.id, id)).returning({ id: jobs.id })
+  if (!deleted) throw new NotFoundError('Job not found.')
+  return { message: 'Job deleted successfully.' }
 }
 
-// ── Company-wide apply link settings ─────────────────────────────────────────
+// ── Company-wide apply link ──────────────────────────────────────────────────
 
 export async function getApplyLinkSettings() {
-  const companyApplyUrl = await getCompanyApplyUrl()
-  return { companyApplyUrl }
+  return { companyApplyUrl: await getCompanyApplyUrl() }
 }
 
 export async function setApplyLinkSettings(companyApplyUrl: string | null) {
@@ -199,9 +131,6 @@ export async function setApplyLinkSettings(companyApplyUrl: string | null) {
     return updated
   }
 
-  const [created] = await db
-    .insert(brandingSettings)
-    .values({ companyApplyUrl })
-    .returning()
+  const [created] = await db.insert(brandingSettings).values({ companyApplyUrl }).returning()
   return created
 }

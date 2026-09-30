@@ -1,4 +1,4 @@
-import { eq, ilike, or, and, desc, asc, count } from 'drizzle-orm'
+import { eq, ilike, or, and, desc, asc, count, max } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import { founderTestResults } from '../../db/schema/founder-tests.js'
 import {
@@ -73,22 +73,23 @@ export const submitTest = async (data: {
 
     // ── score ──
     let totalScore = 0
+    let totalMax = 0
     const sectionMap = new Map<string, { label: string; score: number; max: number }>()
 
     for (const q of activeQuestions) {
+        const options = q.options as { value: string; score: number }[]
         const selected = answers[q.questionKey]
-        const option = (q.options as { value: string; score: number }[]).find(
-            (o) => o.value === selected
-        )
-        const points = option?.score ?? 0
+        const points = options.find((o) => o.value === selected)?.score ?? 0
+        const questionMax = options.length ? Math.max(...options.map((o) => o.score)) : 0
+
         totalScore += points
+        totalMax += questionMax
 
         const bucket = sectionMap.get(q.section) ?? { label: q.sectionLabel, score: 0, max: 0 }
         bucket.score += points
-        bucket.max += 10
+        bucket.max += questionMax
         sectionMap.set(q.section, bucket)
     }
-
     const sectionScores = Array.from(sectionMap.entries()).map(([key, v]) => ({
         dimension: key,
         label: v.label,
@@ -196,7 +197,7 @@ export const createQuestion = async (input: {
         description: input.description ?? null,
         type: input.type,
         options: input.options,
-        displayOrder: input.displayOrder ?? 0,
+        displayOrder: input.displayOrder ?? (await nextQuestionOrder()),
         isActive: input.isActive ?? true,
     }
 
@@ -311,7 +312,7 @@ export const createArchetype = async (input: {
         riskAreas: input.riskAreas ?? [],
         minScore: input.minScore,
         maxScore: input.maxScore,
-        displayOrder: input.displayOrder ?? 0,
+        displayOrder: input.displayOrder ?? (await nextArchetypeOrder()),
         isActive: input.isActive ?? true,
     }
 
@@ -461,4 +462,15 @@ export const getResultStats = async () => {
             percentage: totalSubmissions > 0 ? Math.round((Number(r.total) / totalSubmissions) * 100) : 0,
         })),
     }
+}
+
+
+const nextQuestionOrder = async () => {
+    const [row] = await db.select({ m: max(founderTestQuestions.displayOrder) }).from(founderTestQuestions)
+    return (row?.m ?? 0) + 1
+}
+
+const nextArchetypeOrder = async () => {
+    const [row] = await db.select({ m: max(founderTestArchetypes.displayOrder) }).from(founderTestArchetypes)
+    return (row?.m ?? 0) + 1
 }
