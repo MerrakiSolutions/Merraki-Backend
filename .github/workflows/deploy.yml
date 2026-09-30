@@ -17,34 +17,95 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          command_timeout: 15m
+          timeout: 30s
+
           script: |
-            set -e
+            set -Eeuo pipefail
 
             cd ~/apps/Merraki-Backend
 
-            echo "Pulling latest code..."
+            echo "========================================"
+            echo "1. Pulling latest code"
+            echo "========================================"
+
             git fetch origin main
             git reset --hard origin/main
 
-            echo "Rebuilding API..."
+            echo "========================================"
+            echo "2. Rebuilding API"
+            echo "========================================"
+
             docker compose -f docker-compose.prod.yml build api
 
-            echo "Running database migrations..."
-            docker compose -f docker-compose.prod.yml run --rm api node dist/db/migrate.js
+            echo "========================================"
+            echo "3. Running database migrations"
+            echo "========================================"
 
-            echo "Restarting API..."
+            docker compose -f docker-compose.prod.yml run --rm api \
+              node dist/db/migrate.js
+
+            echo "========================================"
+            echo "4. Starting API"
+            echo "========================================"
+
             docker compose -f docker-compose.prod.yml up -d api
 
-            echo "Waiting for API..."
-            sleep 10
+            echo "========================================"
+            echo "5. Waiting for API health"
+            echo "========================================"
 
-            echo "Checking API health..."
-            HEALTH=$(curl -fsS http://127.0.0.1:8000/health)
+            HEALTH_FILE="/tmp/merraki-health.json"
+            API_READY=false
 
-            echo "Health response:"
-            echo "$HEALTH"
+            for i in $(seq 1 30); do
+              echo "Health check $i/30..."
 
-            echo "Checking containers..."
+              if curl --fail --silent --show-error \
+                --max-time 5 \
+                http://127.0.0.1:8000/health \
+                > "$HEALTH_FILE"; then
+
+                echo "✅ API is healthy"
+                API_READY=true
+                break
+              fi
+
+              echo "⏳ API not ready yet"
+              sleep 2
+            done
+
+            if [ "$API_READY" != "true" ]; then
+              echo "❌ API failed health check"
+
+              echo "========================================"
+              echo "Container status"
+              echo "========================================"
+
+              docker compose -f docker-compose.prod.yml ps
+
+              echo "========================================"
+              echo "API logs"
+              echo "========================================"
+
+              docker logs --tail=200 merraki-api || true
+
+              exit 1
+            fi
+
+            echo "========================================"
+            echo "Health response"
+            echo "========================================"
+
+            cat "$HEALTH_FILE"
+            echo
+
+            echo "========================================"
+            echo "Final container status"
+            echo "========================================"
+
             docker compose -f docker-compose.prod.yml ps
 
-            echo "Deployment completed successfully."
+            echo "========================================"
+            echo "Deployment completed successfully"
+            echo "========================================"
