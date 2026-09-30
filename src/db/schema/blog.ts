@@ -16,6 +16,7 @@ export const blogStatusEnum = pgEnum("blog_status", [
   "archived",
 ]);
 
+
 export const blogCategories = pgTable("blog_categories", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 255 }).notNull(),
