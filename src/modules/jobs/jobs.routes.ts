@@ -5,6 +5,7 @@ import type {
   UpdateJobInput,
 } from './jobs.service.js'
 import { authenticate } from '../../middleware/authenticate.js'
+import { requireAdmin } from '@/middleware/require-admin.js'
 
 // ── Public routes ────────────────────────────────────────────────────────────
 
@@ -27,6 +28,7 @@ export async function publicJobRoutes(app: FastifyInstance) {
 
 export async function adminJobRoutes(app: FastifyInstance) {
   app.addHook('onRequest', authenticate)
+  app.addHook('onRequest', requireAdmin)
 
   // GET /api/admin/jobs — all jobs, active + inactive
   app.get('/', async (_request, reply) => {
