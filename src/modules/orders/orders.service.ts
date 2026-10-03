@@ -1,223 +1,143 @@
-import { eq, or, ilike, and, desc, asc, count, sql } from "drizzle-orm";
-import { db } from "../../db/index.js";
-import { orders } from "../../db/schema/orders.js";
-import { getSignedDownloadUrl } from "../../lib/r2.js";
-import { AppError, NotFoundError } from "../../lib/errors.js";
-import { paginate, getPaginationOffset } from "../../lib/pagination.js";
+import { and, asc, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm'
+import type { z } from 'zod'
+import { db } from '../../db/index.js'
+import { orders, type Order } from '../../db/schema/orders.js'
+import { templates } from '../../db/schema/templates.js'
+import { AppError, NotFoundError } from '../../lib/errors.js'
+import { paginate, getPaginationOffset } from '../../lib/pagination.js'
+import { csvCell, presignDownload, UUID_RE } from '../payments/payments.lib.js'
+import { sendOrderLinks } from './orders.email.js'
+import type { adminOrdersQuerySchema } from './orders.schema.js'
 
-interface OrderItem {
-  templateId: string;
-  title: string;
-  priceUsd: string;
-  r2Key: string;
+// ── public ───────────────────────────────────────────────────────────
+
+/** Never leaks r2 keys, payment ids, IPs or billing addresses. */
+export function toPublicOrder(o: Order) {
+  return {
+    id: o.id,
+    guestName: o.guestName,
+    guestEmail: o.guestEmail,
+    items: o.items.map(({ templateId, title, priceUsd }) => ({ templateId, title, priceUsd })),
+    totalUsd: o.totalUsd,
+    currencyCharged: o.currencyCharged,
+    amountCharged: o.amountCharged,
+    exchangeRate: o.exchangeRate,
+    status: o.status,
+    downloadToken: o.status === 'paid' ? o.downloadToken : null,
+    createdAt: o.createdAt,
+    paidAt: o.paidAt,
+  }
 }
 
-// ── PUBLIC: Track order by email or order ID ──────────────────────
+/** The order id is an unguessable UUID — holding it is the buyer's proof of ownership. */
+export async function trackOrderById(orderId: string) {
+  if (!UUID_RE.test(orderId)) return []
+  const [o] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1)
+  return o ? [toPublicOrder(o)] : []
+}
 
-export const trackOrder = async (params: {
-  email?: string;
-  orderId?: string;
-}) => {
-  const { email, orderId } = params;
+export async function getOrderStatus(orderId: string) {
+  if (!UUID_RE.test(orderId)) throw new NotFoundError('Order not found.')
+  const [o] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1)
+  if (!o) throw new NotFoundError('Order not found.')
+  return { status: o.status, downloadToken: o.status === 'paid' ? o.downloadToken : null }
+}
 
-  if (!email && !orderId) {
-    throw new AppError("Provide either an email or order ID.", 400);
-  }
-
-  if (orderId) {
-    // single order by ID
-    const [order] = await db
-      .select({
-        id: orders.id,
-        guestName: orders.guestName,
-        guestEmail: orders.guestEmail,
-        items: orders.items,
-        totalUsd: orders.totalUsd,
-        currencyCharged: orders.currencyCharged,
-        amountCharged: orders.amountCharged,
-        status: orders.status,
-        createdAt: orders.createdAt,
-      })
-      .from(orders)
-      .where(eq(orders.id, orderId))
-      .limit(1);
-
-    if (!order) throw new NotFoundError("Order not found.");
-
-    return [order];
-  }
-
-  // all orders by email
-  const data = await db
-    .select({
-      id: orders.id,
-      guestName: orders.guestName,
-      guestEmail: orders.guestEmail,
-      items: orders.items,
-      totalUsd: orders.totalUsd,
-      currencyCharged: orders.currencyCharged,
-      amountCharged: orders.amountCharged,
-      status: orders.status,
-      createdAt: orders.createdAt,
-    })
-    .from(orders)
-    .where(eq(orders.guestEmail, email!))
-    .orderBy(desc(orders.createdAt));
-
-  return data;
-};
-
-// ── PUBLIC: Get download links for paid order ─────────────────────
-
-export const getDownloadLinks = async (downloadToken: string) => {
-  const [order] = await db
+// Email lookup never returns data — it emails links to the address owner. Max 1 email/hour/address.
+const lastLookup = new Map<string, number>()
+export async function requestOrderLinks(rawEmail: string) {
+  const email = rawEmail.trim().toLowerCase()
+  const now = Date.now()
+  if ((lastLookup.get(email) ?? 0) > now - 3_600_000) return
+  const rows = await db
     .select()
     .from(orders)
-    .where(eq(orders.downloadToken, downloadToken as any))
-    .limit(1);
+    .where(and(eq(sql`lower(${orders.guestEmail})`, email), eq(orders.status, 'paid')))
+    .orderBy(desc(orders.createdAt))
+    .limit(10)
+  if (!rows.length) return
+  if (lastLookup.size > 5000) lastLookup.clear()
+  lastLookup.set(email, now)
+  void sendOrderLinks(email, rows).catch((err) => console.error('order links email failed', err))
+}
 
-  if (!order) throw new NotFoundError("Order not found.");
-  if (order.status !== "paid") {
-    throw new AppError(
-      "Downloads are only available for completed orders.",
-      403,
-    );
-  }
+function downloadName(title: string, key: string) {
+  const ext = key.includes('.') ? key.slice(key.lastIndexOf('.')).replace(/[^.\w]/g, '') : ''
+  return `${title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 80) || 'download'}${ext}`
+}
 
-  const items = order.items as OrderItem[];
+export async function getDownloadsByToken(token: string) {
+  if (!UUID_RE.test(token)) throw new NotFoundError('Download link not found.')
+  const [order] = await db.select().from(orders).where(eq(orders.downloadToken, token)).limit(1)
+  if (!order) throw new NotFoundError('Download link not found.')
+  if (order.status !== 'paid') throw new AppError('Downloads are not available for this order.', 403, 'DOWNLOAD_UNAVAILABLE')
 
-  // generate fresh signed URLs on every call — never stored
-  const downloadItems = await Promise.all(
-    items.map(async (item) => ({
-      title: item.title,
-      downloadUrl: await getSignedDownloadUrl(item.r2Key, 3600), // 1hr
-    })),
-  );
+  // Serve the CURRENT file (admin may have replaced it since purchase); fall back to the purchase-time key.
+  const current = await db
+    .select({ id: templates.id, r2Key: templates.r2Key })
+    .from(templates)
+    .where(inArray(templates.id, order.items.map((i) => i.templateId)))
+  const keyById = new Map(current.map((t) => [t.id, t.r2Key]))
 
-  return {
-    orderId: order.id,
-    guestName: order.guestName,
-    items: downloadItems,
-    expiresIn: "1 hour",
-  };
-};
+  const items = await Promise.all(
+    order.items.map(async (item) => {
+      const key = keyById.get(item.templateId) || item.r2Key
+      return { title: item.title, downloadUrl: await presignDownload(key, downloadName(item.title, key), 900) }
+    })
+  )
+  return { orderId: order.id, guestName: order.guestName, items, expiresIn: '15 minutes' }
+}
 
-// ── ADMIN: List all orders ────────────────────────────────────────
+// ── admin ────────────────────────────────────────────────────────────
 
-export const getAdminOrders = async (query: {
-  page: number;
-  limit: number;
-  search?: string;
-  status?: string;
-  sort: string;
-}) => {
-  const { page, limit, search, status, sort } = query;
-  const offset = getPaginationOffset(page, limit);
-
-  const conditions = [];
-
-  if (status) {
-    conditions.push(eq(orders.status, status as any));
-  }
-
-  if (search) {
+export async function listAdminOrders(q: z.infer<typeof adminOrdersQuerySchema>) {
+  const conditions = []
+  if (q.status) conditions.push(eq(orders.status, q.status))
+  if (q.search) {
+    const like = `%${q.search.replace(/[\\%_]/g, '\\$&')}%`
     conditions.push(
       or(
-        ilike(orders.guestEmail, `%${search}%`),
-        ilike(orders.guestName, `%${search}%`),
-        ilike(orders.razorpayOrderId, `%${search}%`),
-        ilike(orders.razorpayPaymentId, `%${search}%`),
-      ),
-    );
+        ilike(orders.guestName, like),
+        ilike(orders.guestEmail, like),
+        ilike(orders.razorpayOrderId, like),
+        ilike(orders.razorpayPaymentId, like),
+        sql`${orders.id}::text ilike ${like}`
+      )
+    )
   }
+  const where = conditions.length ? and(...conditions) : undefined
+  const orderBy = {
+    newest: desc(orders.createdAt), oldest: asc(orders.createdAt),
+    amount_high: desc(orders.totalUsd), amount_low: asc(orders.totalUsd),
+  }[q.sort]
 
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const [{ total }] = await db.select({ total: count() }).from(orders).where(where)
+  const data = await db.select().from(orders).where(where).orderBy(orderBy).limit(q.limit).offset(getPaginationOffset(q.page, q.limit))
+  return { data, pagination: paginate(q.page, q.limit, Number(total)) }
+}
 
-  const [{ total }] = await db
-    .select({ total: count() })
-    .from(orders)
-    .where(where);
+export async function getAdminOrder(id: string): Promise<Order> {
+  const [o] = await db.select().from(orders).where(eq(orders.id, id)).limit(1)
+  if (!o) throw new NotFoundError('Order not found.')
+  return o
+}
 
-  const orderBy =
-    sort === "oldest"
-      ? asc(orders.createdAt)
-      : sort === "amount_high"
-        ? desc(orders.totalUsd)
-        : sort === "amount_low"
-          ? asc(orders.totalUsd)
-          : desc(orders.createdAt);
+export async function deleteOrder(id: string) {
+  const o = await getAdminOrder(id)
+  if (o.status === 'paid' || o.status === 'refunded') {
+    throw new AppError('Paid and refunded orders are financial records and cannot be deleted.', 409, 'ORDER_LOCKED')
+  }
+  await db.delete(orders).where(eq(orders.id, id))
+  return { message: 'Order deleted successfully.' }
+}
 
-  const data = await db
-    .select()
-    .from(orders)
-    .where(where)
-    .orderBy(orderBy)
-    .limit(limit)
-    .offset(offset);
-
-  return { data, pagination: paginate(page, limit, Number(total)) };
-};
-
-// ── ADMIN: Single order ───────────────────────────────────────────
-
-export const getAdminOrderById = async (id: string) => {
-  const [order] = await db
-    .select()
-    .from(orders)
-    .where(eq(orders.id, id))
-    .limit(1);
-
-  if (!order) throw new NotFoundError("Order not found.");
-  return order;
-};
-
-// ── ADMIN: Delete order (hard delete) ────────────────────────────
-
-export const deleteOrder = async (id: string) => {
-  const [order] = await db
-    .select({ id: orders.id })
-    .from(orders)
-    .where(eq(orders.id, id))
-    .limit(1);
-
-  if (!order) throw new NotFoundError("Order not found.");
-
-  await db.delete(orders).where(eq(orders.id, id));
-  return { message: "Order deleted successfully." };
-};
-
-// ── ADMIN: Export orders CSV ──────────────────────────────────────
-
-export const exportOrdersCSV = async () => {
-  const data = await db.select().from(orders).orderBy(desc(orders.createdAt));
-
-  const headers = [
-    "Order ID",
-    "Name",
-    "Email",
-    "Total USD",
-    "Currency",
-    "Amount Charged",
-    "Status",
-    "Razorpay Order ID",
-    "Razorpay Payment ID",
-    "Created At",
-  ];
-
-  const rows = data.map((o) => [
-    o.id,
-    o.guestName,
-    o.guestEmail,
-    o.totalUsd,
-    o.currencyCharged,
-    o.amountCharged,
-    o.status,
-    o.razorpayOrderId || "",
-    o.razorpayPaymentId || "",
-    o.createdAt.toISOString(),
-  ]);
-
-  return [headers, ...rows]
-    .map((row) => row.map((v) => `"${v}"`).join(","))
-    .join("\n");
-};
+export async function exportOrdersCsv() {
+  const rows = await db.select().from(orders).orderBy(desc(orders.createdAt)).limit(20_000)
+  const header = ['ID', 'Name', 'Email', 'Items', 'Total USD', 'Currency', 'Amount Charged', 'Exchange Rate', 'Status', 'Method', 'Razorpay Order', 'Razorpay Payment', 'Mode', 'Created', 'Paid']
+  const lines = rows.map((o) =>
+    [o.id, o.guestName, o.guestEmail, o.items.map((i) => i.title).join('; '), o.totalUsd, o.currencyCharged, o.amountCharged,
+    o.exchangeRate ?? '', o.status, o.paymentMethod ?? '', o.razorpayOrderId ?? '', o.razorpayPaymentId ?? '',
+    o.livemode ? 'live' : 'test', o.createdAt.toISOString(), o.paidAt?.toISOString() ?? ''].map(csvCell).join(',')
+  )
+  return [header.map(csvCell).join(','), ...lines].join('\n')
+}

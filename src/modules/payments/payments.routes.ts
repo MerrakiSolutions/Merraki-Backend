@@ -1,114 +1,60 @@
-import { FastifyInstance } from "fastify";
-import { z } from "zod";
-import {
-  processSuccessfulPayment,
-  markOrderFailed,
-  getUsdToInrRate,
-} from "./payments.service.js";
-import {
-  verifyRazorpaySignature,
-  verifyWebhookSignature,
-} from "../../lib/razorpay.js";
-import { AppError } from "../../lib/errors.js";
+import { FastifyInstance } from 'fastify'
+import { z } from 'zod'
+import { handleWebhook, settlePayment } from './payments.service.js'
+import { getDownloadsByToken } from '../orders/orders.service.js'
+import { AppError } from '../../lib/errors.js'
+import { getUsdInr, rateLimit, verifyCheckoutSignature } from './payments.lib.js'
 
 const verifySchema = z.object({
-  razorpay_order_id: z.string().min(1),
-  razorpay_payment_id: z.string().min(1),
-  razorpay_signature: z.string().min(1),
-});
+  razorpay_order_id: z.string().min(5).max(100),
+  razorpay_payment_id: z.string().min(5).max(100),
+  razorpay_signature: z.string().length(64),
+})
 
+// prefix: /api/payments
 export const paymentsRoutes = async (app: FastifyInstance) => {
-  // ── GET /api/payments/exchange-rate ──────────────
-  // Public — frontend calls this to show INR equivalent
-  app.get("/exchange-rate", async (_request, reply) => {
-    const rate = await getUsdToInrRate();
-    return reply.send({
-      success: true,
-      data: { usdToInr: rate, updatedAt: new Date().toISOString() },
-    });
-  });
+  app.get('/exchange-rate', rateLimit(60, '1 minute'), async (_req, reply) => {
+    return reply.send({ success: true, data: { usdToInr: await getUsdInr(), fetchedAt: new Date() } })
+  })
 
-  // ── POST /api/payments/webhook ────────────────────
-  // Razorpay fires this automatically after payment
-  // Signature verified via HMAC-SHA256
-  app.post("/webhook", async (request, reply) => {
-    const signature = request.headers["x-razorpay-signature"] as string;
-
-    if (!signature) {
-      return reply
-        .status(400)
-        .send({ success: false, error: "Missing signature" });
+  // Browser calls this after Razorpay Checkout succeeds
+  app.post('/verify', rateLimit(20, '1 minute'), async (request, reply) => {
+    const b = verifySchema.parse(request.body)
+    if (!verifyCheckoutSignature(b.razorpay_order_id, b.razorpay_payment_id, b.razorpay_signature)) {
+      request.log.warn({ orderId: b.razorpay_order_id }, 'invalid payment signature on /verify')
+      throw new AppError('Payment signature could not be verified.', 400, 'INVALID_SIGNATURE')
     }
 
-    const rawBody = (request as any).rawBody as string;
+    const { status, order } = await settlePayment(b.razorpay_order_id, b.razorpay_payment_id)
 
-    if (!rawBody) {
-      return reply
-        .status(400)
-        .send({ success: false, error: "Missing raw body" });
+    if (status === 'paid') {
+      const { orderId, guestName, items, expiresIn } = await getDownloadsByToken(order.downloadToken)
+      return reply.send({
+        success: true,
+        data: {
+          status: 'paid',
+          orderId,
+          downloadToken: order.downloadToken,
+          guestName,
+          items, // [{ title, downloadUrl }]
+          expiresIn,
+        },
+      })
     }
-
-    // verify webhook signature
-    const isValid = verifyWebhookSignature(rawBody, signature);
-    if (!isValid) {
-      return reply
-        .status(400)
-        .send({ success: false, error: "Invalid signature" });
+    if (status === 'processing') {
+      // not captured yet — the webhook finishes it; frontend polls /api/orders/status/:id
+      return reply.status(202).send({ success: true, data: { status: 'processing', orderId: order.id } })
     }
-
-    const event = request.body as {
-      event: string;
-      payload: {
-        payment: {
-          entity: {
-            order_id: string;
-            id: string;
-          };
-        };
-      };
-    };
-
-    if (event.event === "payment.captured") {
-      const { order_id, id: payment_id } = event.payload.payment.entity;
-      await processSuccessfulPayment(order_id, payment_id);
+    if (status === 'failed') {
+      return reply.status(402).send({ success: false, error: { code: 'PAYMENT_FAILED', message: 'The payment did not go through. You have not been charged — please try again.' } })
     }
+    throw new AppError('This order has been refunded.', 409, 'ORDER_REFUNDED')
+  })
 
-    if (event.event === "payment.failed") {
-      const { order_id } = event.payload.payment.entity;
-      await markOrderFailed(order_id);
-    }
-
-    // always return 200 to Razorpay
-    return reply.status(200).send({ success: true });
-  });
-
-  // ── POST /api/payments/verify ─────────────────────
-  // Manual verify — called by frontend after Razorpay checkout success
-  // Use this for testing + as production fallback if webhook is delayed
-  app.post("/verify", async (request, reply) => {
-    const body = verifySchema.parse(request.body);
-
-    const isValid = verifyRazorpaySignature(
-      body.razorpay_order_id,
-      body.razorpay_payment_id,
-      body.razorpay_signature,
-    );
-
-    if (!isValid) {
-      throw new AppError(
-        "Payment verification failed. Invalid signature.",
-        400,
-      );
-    }
-
-    await processSuccessfulPayment(
-      body.razorpay_order_id,
-      body.razorpay_payment_id,
-    );
-
-    return reply.send({
-      success: true,
-      message: "Payment verified successfully.",
-    });
-  });
-};
+  // Razorpay → us. Authenticated by HMAC, so no rate limit.
+  app.post('/webhook', { config: { rateLimit: false } }, async (request, reply) => {
+    const sig = request.headers['x-razorpay-signature']
+    await handleWebhook((request as any).rawBody as string | undefined, typeof sig === 'string' ? sig : undefined)
+    return reply.status(200).send({ success: true })
+  })
+}

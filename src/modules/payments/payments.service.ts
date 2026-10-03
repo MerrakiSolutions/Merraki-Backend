@@ -1,139 +1,121 @@
-import { eq } from "drizzle-orm";
-import { db } from "../../db/index.js";
-import { orders } from "../../db/schema/orders.js";
-import { getSignedDownloadUrl, uploadToR2 } from "../../lib/r2.js";
-import { sendEmail } from "../../lib/resend.js";
-import { generateInvoicePdf } from "../../lib/invoice.js";
-import { renderEmail } from "../../emails/index.js";
-import { AppError } from "../../lib/errors.js";
-import { env } from "../../config/env.js";
+import { and, eq, inArray } from 'drizzle-orm'
+import { db } from '../../db/index.js'
+import { orders, type Order } from '../../db/schema/orders.js'
+import { AppError, NotFoundError } from '../../lib/errors.js'
+import { fulfillOrder } from '../orders/orders.email.js'
+import { alertAdmin, razorpay, toMinor, verifyWebhookSignature } from './payments.lib.js'
 
-// ── Types ─────────────────────────────────────────────────────────
+type SettleStatus = 'paid' | 'processing' | 'failed' | 'refunded'
 
-interface OrderItem {
-  templateId: string;
-  title: string;
-  priceUsd: string;
-  r2Key: string;
+async function fetchPayment(paymentId: string): Promise<any> {
+  try {
+    return await razorpay.payments.fetch(paymentId)
+  } catch (err) {
+    const code = (err as any)?.statusCode
+    if (code === 400 || code === 404) throw new AppError('Unknown payment reference.', 400, 'UNKNOWN_PAYMENT')
+    throw new AppError('Could not confirm the payment with the provider. Please retry shortly.', 502)
+  }
 }
 
-// ── Core: process a successful payment ───────────────────────────
-// Called by both webhook and manual /verify endpoint
-// Idempotent — safe to call twice, skips if already paid
-
-export const processSuccessfulPayment = async (
+export async function settlePayment(
   razorpayOrderId: string,
-  razorpayPaymentId: string,
-): Promise<void> => {
-  // ── 1. Find order ──────────────────────────────
-  const [order] = await db
-    .select()
-    .from(orders)
-    .where(eq(orders.razorpayOrderId, razorpayOrderId))
-    .limit(1);
+  paymentId: string
+): Promise<{ status: SettleStatus; order: Order }> {
+  const [order] = await db.select().from(orders).where(eq(orders.razorpayOrderId, razorpayOrderId)).limit(1)
+  if (!order) throw new NotFoundError('Order not found.')
 
-  if (!order) throw new AppError("Order not found.", 404);
+  // Never trust the request body: ask Razorpay what really happened.
+  let payment = await fetchPayment(paymentId)
+  if (payment.order_id !== razorpayOrderId) {
+    throw new AppError('Payment does not belong to this order.', 400, 'PAYMENT_ORDER_MISMATCH')
+  }
+  if (payment.status === 'authorized') {
+    try {
+      payment = await razorpay.payments.capture(payment.id, Number(payment.amount), payment.currency)
+    } catch {
+      payment = await fetchPayment(payment.id) // probably auto-captured meanwhile
+    }
+  }
+  if (payment.status === 'failed') return { status: 'failed', order }
+  if (payment.status !== 'captured') return { status: 'processing', order }
 
-  // ── 2. Idempotency check ───────────────────────
-  if (order.status === "paid") return; // already processed — skip
+  // Amount + currency must be exactly what WE priced.
+  if (Number(payment.amount) !== toMinor(order.amountCharged) || payment.currency !== order.currencyCharged) {
+    await alertAdmin('Payment amount mismatch — order NOT fulfilled', [
+      `Order ${order.id}`, `Payment ${payment.id}`,
+      `Expected ${order.amountCharged} ${order.currencyCharged}`, `Got ${payment.amount} (minor units) ${payment.currency}`,
+    ])
+    throw new AppError('Payment amount mismatch.', 409, 'AMOUNT_MISMATCH')
+  }
 
-  // ── 3. Mark as paid ────────────────────────────
-  await db
+  // Atomic: only ONE caller (verify or webhook, first or replayed) wins this update.
+  const [paid] = await db
     .update(orders)
-    .set({
-      status: "paid",
-      razorpayPaymentId,
-      updatedAt: new Date(),
-    })
-    .where(eq(orders.id, order.id));
+    .set({ status: 'paid', razorpayPaymentId: payment.id, paymentMethod: payment.method ?? null, paidAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(orders.id, order.id), inArray(orders.status, ['pending', 'failed']))) // a late capture of an old order still counts
+    .returning()
 
-  const items = order.items as OrderItem[];
+  if (paid) {
+    // Receipt email; if it fails the 5-minute sweep retries it.
+    void fulfillOrder(paid).catch((err) => console.error('receipt send failed, sweep will retry', paid.id, err))
+    return { status: 'paid', order: paid }
+  }
 
-  // ── 4. Generate signed download URLs (1hr) ─────
-  const downloadItems = await Promise.all(
-    items.map(async (item) => ({
-      title: item.title,
-      downloadUrl: await getSignedDownloadUrl(item.r2Key, 3600),
-    })),
-  );
+  const [fresh] = await db.select().from(orders).where(eq(orders.id, order.id)).limit(1)
+  if (fresh.razorpayPaymentId && fresh.razorpayPaymentId !== payment.id) {
+    await alertAdmin('Duplicate payment — refund the extra one in Razorpay', [
+      `Order ${order.id}`, `Keeping payment ${fresh.razorpayPaymentId}`, `Extra payment ${payment.id}`,
+    ])
+  }
+  return { status: fresh.status === 'refunded' ? 'refunded' : 'paid', order: fresh }
+}
 
-  // ── 5. Generate PDF invoice ────────────────────
-  const invoicePdf = await generateInvoicePdf({
-    orderId: order.id,
-    guestName: order.guestName,
-    guestEmail: order.guestEmail,
-    billingAddress: order.billingAddress as any,
-    items: items.map((i) => ({ title: i.title, priceUsd: i.priceUsd })),
-    subtotalUsd: String(order.subtotalUsd),
-    totalUsd: String(order.totalUsd),
-    currencyCharged: order.currencyCharged as "USD" | "INR",
-    amountCharged: String(order.amountCharged),
-    exchangeRate: order.exchangeRate ? String(order.exchangeRate) : undefined,
-    createdAt: order.createdAt,
-  });
+export async function handleWebhook(rawBody: string | undefined, signature: string | undefined) {
+  if (!rawBody || !signature) throw new AppError('Malformed webhook request.', 400)
+  if (!verifyWebhookSignature(rawBody, signature)) {
+    throw new AppError('Invalid webhook signature.', 401, 'INVALID_WEBHOOK_SIGNATURE')
+  }
 
-  // ── 6. Upload invoice to R2 ────────────────────
-  const invoiceKey = `invoices/${order.id}.pdf`;
-  await uploadToR2(invoiceKey, invoicePdf, "application/pdf");
+  let event: any
+  try {
+    event = JSON.parse(rawBody)
+  } catch {
+    throw new AppError('Malformed webhook body.', 400)
+  }
 
-  await db
-    .update(orders)
-    .set({ invoiceR2Key: invoiceKey, updatedAt: new Date() })
-    .where(eq(orders.id, order.id));
+  const pay = event?.payload?.payment?.entity
 
-  // ── 7. Send confirmation email ─────────────────
-  const trackOrderUrl = `${env.FRONTEND_URL}/track-order?order_id=${order.id}`;
+  switch (event?.event) {
+    case 'payment.authorized':
+    case 'payment.captured':
+    case 'order.paid': {
+      const razorpayOrderId = pay?.order_id ?? event?.payload?.order?.entity?.id
+      if (!pay?.id || !razorpayOrderId) return
+      try {
+        await settlePayment(razorpayOrderId, pay.id) // idempotent — duplicate deliveries are harmless
+      } catch (err) {
+        // Business errors (unknown order, mismatch…) won't be fixed by a retry — acknowledge.
+        // Infra errors (5xx / DB down) rethrow so Razorpay retries.
+        if (err instanceof AppError && err.statusCode < 500) return console.warn('webhook ignored:', err.message)
+        throw err
+      }
+      return
+    }
 
-  await sendEmail({
-    to: order.guestEmail,
-    subject: `Your MerrakiSolutions order is confirmed — #${order.id.slice(0, 8).toUpperCase()}`,
-    html: renderEmail.orderConfirmation({
-      guestName: order.guestName,
-      orderId: order.id,
-      items: items.map((i) => ({ title: i.title, priceUsd: i.priceUsd })),
-      totalUsd: String(order.totalUsd),
-      currencyCharged: order.currencyCharged as "USD" | "INR",
-      amountCharged: String(order.amountCharged),
-      exchangeRate: order.exchangeRate ? String(order.exchangeRate) : undefined,
-      createdAt: order.createdAt.toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      }),
-    }),
-    attachments: [
-      { filename: `invoice-${order.id.slice(0, 8)}.pdf`, content: invoicePdf },
-    ],
-  });
+    case 'refund.processed': {
+      const refund = event?.payload?.refund?.entity
+      if (!refund?.payment_id) return
+      const [order] = await db.select().from(orders).where(eq(orders.razorpayPaymentId, refund.payment_id)).limit(1)
+      if (!order) return
+      if (Number(refund.amount) !== toMinor(order.amountCharged)) {
+        await alertAdmin('Partial refund seen in Razorpay', [`Order ${order.id}`, `Refund ${refund.id}`, 'Orders only track full refunds — review manually.'])
+        return
+      }
+      await db.update(orders).set({ status: 'refunded', updatedAt: new Date() }).where(and(eq(orders.id, order.id), eq(orders.status, 'paid')))
+      return
+    }
 
-  // ── 8. Send download links email ───────────────
-  await sendEmail({
-    to: order.guestEmail,
-    subject: `Your downloads are ready — MerrakiSolutions`,
-    html: renderEmail.downloadLinks({
-      guestName: order.guestName,
-      orderId: order.id,
-      items: downloadItems,
-      trackOrderUrl,
-      expiresIn: "1 hour",
-    }),
-    attachments: [
-      { filename: `invoice-${order.id.slice(0, 8)}.pdf`, content: invoicePdf },
-    ],
-  });
-};
-
-// ── Mark order as failed ─────────────────────────────────────────
-
-export const markOrderFailed = async (
-  razorpayOrderId: string,
-): Promise<void> => {
-  await db
-    .update(orders)
-    .set({ status: "failed", updatedAt: new Date() })
-    .where(eq(orders.razorpayOrderId, razorpayOrderId));
-};
-
-// ── Exchange rate (public endpoint) ─────────────────────────────
-
-export { getUsdToInrRate } from "../../lib/exchange-rate.js";
+    default:
+      return // payment.failed etc. — nothing to do; the buyer can simply retry
+  }
+}

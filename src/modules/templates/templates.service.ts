@@ -14,6 +14,7 @@ import slugify from "slugify";
 import { v4 as uuidv4 } from "uuid";
 import { db } from "../../db/index.js";
 import { templates, templateCategories } from "../../db/schema/templates.js";
+import { orders } from "../../db/schema/orders.js";
 import { uploadToR2, deleteFromR2 } from "../../lib/r2.js";
 import {
   uploadImageToCloudinary,
@@ -404,9 +405,11 @@ export const updateTemplate = async (
   if (data.featured !== undefined) updateData.featured = data.featured;
   if (data.status !== undefined) updateData.status = data.status;
 
-  // replace template file if new one uploaded
+  // variable to hold the old R2 key for deletion after DB update
+  let oldKeyToDelete: string | null = null;
+
+  // replace template file if new one uploaded — upload FIRST, delete old only after the DB is updated
   if (data.newTemplateFile) {
-    await deleteFromR2(existing.r2Key);
     const fileExt = data.newTemplateFile.filename.split(".").pop() || "bin";
     const newR2Key = `templates/${uuidv4()}.${fileExt}`;
     await uploadToR2(
@@ -415,6 +418,7 @@ export const updateTemplate = async (
       data.newTemplateFile.mimetype,
     );
     updateData.r2Key = newR2Key;
+    oldKeyToDelete = existing.r2Key;
   }
 
   // append new preview images if uploaded
@@ -439,6 +443,13 @@ export const updateTemplate = async (
     .where(eq(templates.id, id))
     .returning();
 
+  // delete old template file from R2 if a new one was uploaded
+  if (oldKeyToDelete) {
+    await deleteFromR2(oldKeyToDelete).catch((err) =>
+      console.error("old template file cleanup failed", oldKeyToDelete, err),
+    );
+  }
+
   return updated;
 };
 
@@ -453,9 +464,25 @@ export const deleteTemplate = async (id: string) => {
 
   if (!template) throw new NotFoundError("Template not found.");
 
-  // delete file from R2
-  await deleteFromR2(template.r2Key);
+  // Paying customers keep download access — never delete a file someone bought.
+  const [purchased] = await db
+    .select({ id: orders.id })
+    .from(orders)
+    .where(
+      and(
+        eq(orders.status, "paid"),
+        sql`${orders.items} @> ${JSON.stringify([{ templateId: id }])}::jsonb`,
+      ),
+    )
+    .limit(1);
 
+  if (purchased) {
+    throw new ConflictError(
+      "This template has paying customers, so it can't be deleted. Archive it instead — it leaves the store but buyers keep their downloads.",
+    );
+  }
+
+  await deleteFromR2(template.r2Key);
   await db.delete(templates).where(eq(templates.id, id));
   return { message: "Template deleted successfully." };
 };

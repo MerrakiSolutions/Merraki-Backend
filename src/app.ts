@@ -14,6 +14,7 @@ import { publicTemplateRoutes, adminTemplateRoutes } from './modules/templates/t
 import { checkoutRoutes } from './modules/checkout/checkout.routes.js'
 import { paymentsRoutes } from './modules/payments/payments.routes.js'
 import { publicOrderRoutes, adminOrderRoutes } from './modules/orders/orders.routes.js'
+import { retryUnsentReceipts } from './modules/orders/orders.email.js'
 import { publicBlogRoutes, adminBlogRoutes } from './modules/blog/blog.routes.js'
 import { publicNewsletterRoutes, adminNewsletterRoutes } from './modules/newsletter/newsletter.routes.js'
 import { publicContactRoutes, adminContactRoutes } from './modules/contacts/contacts.routes.js'
@@ -41,9 +42,9 @@ await app.register(cors, {
     const allowed = [
       'http://localhost:3000',
       'http://localhost:3001',
-      env.FRONTEND_URL,                          // https://merrakisolutions.com
-      'https://www.merrakisolutions.com',        // www subdomain
-      'https://admin.merrakisolutions.com',      // admin panel
+      env.FRONTEND_URL,
+      'https://www.merrakisolutions.com',
+      'https://admin.merrakisolutions.com',
     ].filter(Boolean)
 
     // Allow no-origin requests (server-to-server, Postman, curl)
@@ -86,7 +87,10 @@ app.addContentTypeParser(
       done(null, JSON.parse(body as string))
     } catch (err) {
       // Return a proper 400 instead of an unhandled parse exception
-      done(Object.assign(new Error('Invalid JSON body'), { statusCode: 400 }), undefined)
+      done(
+        Object.assign(new Error('Invalid JSON body'), { statusCode: 400 }),
+        undefined
+      )
     }
   }
 )
@@ -109,7 +113,9 @@ app.setErrorHandler((error, _request, reply) => {
       success: false,
       error: {
         code: 'VALIDATION_ERROR',
-        message: first ? (field ? `${field}: ${first.message}` : first.message) : 'Validation failed',
+        message: first
+          ? (field ? `${field}: ${first.message}` : first.message)
+          : 'Validation failed',
         details: error.issues,
       },
     })
@@ -120,14 +126,21 @@ app.setErrorHandler((error, _request, reply) => {
   if (statusCode && statusCode >= 400 && statusCode < 500) {
     return reply.status(statusCode).send({
       success: false,
-      error: { code: 'BAD_REQUEST', message: error instanceof Error ? error.message : String(error) },
+      error: {
+        code: 'BAD_REQUEST',
+        message: error instanceof Error ? error.message : String(error),
+      },
     })
   }
 
   if (error instanceof Error && 'validation' in error && error.validation) {
     return reply.status(400).send({
       success: false,
-      error: { code: 'VALIDATION_ERROR', message: 'Validation failed', details: (error as any).validation },
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Validation failed',
+        details: (error as any).validation,
+      },
     })
   }
 
@@ -195,6 +208,12 @@ await app.register(dashboardRoutes, { prefix: '/api/admin/dashboard' })
 const start = async () => {
   try {
     await app.listen({ port: Number(env.PORT), host: '0.0.0.0' })
+
+    setInterval(
+      () => void retryUnsentReceipts().catch((e) => app.log.error(e)),
+      5 * 60_000
+    )
+
     console.log(`🚀 Server running on port ${env.PORT}`)
   } catch (err) {
     app.log.error(err)

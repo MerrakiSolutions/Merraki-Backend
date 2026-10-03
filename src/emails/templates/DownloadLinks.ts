@@ -42,8 +42,8 @@ export const DownloadLinks = ({
                 Hi ${guestName}, your purchase for order <strong>#${orderId.slice(0, 8).toUpperCase()}</strong> is complete. Click below to download your files.
               </p>
               ${items
-                .map(
-                  (item) => `
+    .map(
+      (item) => `
               <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:12px">
                 <tr>
                   <td style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:16px 20px">
@@ -54,8 +54,8 @@ export const DownloadLinks = ({
                   </td>
                 </tr>
               </table>`,
-                )
-                .join("")}
+    )
+    .join("")}
               <p style="margin:24px 0 0;font-size:13px;color:#94a3b8;line-height:1.6">
                 Links expire in <strong>${expiresIn}</strong>. Regenerate anytime from the
                 <a href="${trackOrderUrl}" style="color:#0f172a">order tracking page</a>
