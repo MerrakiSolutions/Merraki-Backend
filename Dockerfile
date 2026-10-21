@@ -28,8 +28,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-RUN corepack enable \
-    && corepack prepare pnpm@10.30.0 --activate
+RUN npm install --global pnpm@10.30.0
 
 COPY package.json pnpm-lock.yaml ./
 
