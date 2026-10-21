@@ -26,14 +26,31 @@ import { ZodError } from 'zod'
 
 const app = Fastify({
   logger: {
-    level: env.NODE_ENV === 'development' ? 'info' : 'warn',
+    level: 'info',
     transport:
       env.NODE_ENV === 'development'
         ? { target: 'pino-pretty' }
         : undefined,
   },
   trustProxy: true,
-})
+});
+
+app.addHook('onRequest', async (request) => {
+  request.log.info({
+    method: request.method,
+    url: request.url,
+    ip: request.ip,
+  }, 'Incoming API request');
+});
+
+app.addHook('onResponse', async (request, reply) => {
+  request.log.info({
+    method: request.method,
+    url: request.url,
+    statusCode: reply.statusCode,
+    responseTime: reply.elapsedTime,
+  }, 'API response');
+});
 
 // ── Plugins ───────────────────────────────────────────────────────
 
