@@ -29,7 +29,6 @@ export const blogCategories = pgTable("blog_categories", {
     .notNull(),
 });
 
-
 export const blogAuthors = pgTable("blog_authors", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
